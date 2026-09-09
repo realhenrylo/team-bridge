@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "team-bridge-hub",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "vars": {
+    // days without any activity before a room is destroyed
+    "ROOM_IDLE_DAYS": "7"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "TEAM_ROOM", "class_name": "TeamRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamRoom"] }],
+  "observability": { "enabled": true }
+}

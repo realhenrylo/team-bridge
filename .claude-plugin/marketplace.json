@@ -1,0 +1,11 @@
+{
+  "name": "team-bridge-marketplace",
+  "owner": { "name": "henrylo" },
+  "plugins": [
+    {
+      "name": "team-bridge",
+      "source": "./plugin",
+      "description": "Message colleagues' Claude Code sessions through a shared hub."
+    }
+  ]
+}
