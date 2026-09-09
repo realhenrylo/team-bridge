@@ -3,6 +3,7 @@
  * Rooms live on the hub; the code is the only thing a colleague needs to join.
  */
 import { readCredentials } from './config';
+import { httpRequest } from './net';
 
 export interface RoomInfo {
   code: string;
@@ -21,7 +22,7 @@ function httpBase(): string {
 
 export async function createRoom(name: string): Promise<RoomInfo> {
   const creds = readCredentials();
-  const res = await fetch(`${httpBase()}/rooms`, {
+  const res = await httpRequest(`${httpBase()}/rooms`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -29,15 +30,15 @@ export async function createRoom(name: string): Promise<RoomInfo> {
     },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) throw new Error(`create failed: ${res.status} ${await res.text()}`);
-  return (await res.json()) as RoomInfo;
+  if (res.status !== 200) throw new Error(`create failed: ${res.status} ${res.text}`);
+  return res.json<RoomInfo>();
 }
 
 export async function roomInfo(code: string): Promise<RoomInfo | null> {
-  const res = await fetch(`${httpBase()}/rooms/${encodeURIComponent(code)}`);
+  const res = await httpRequest(`${httpBase()}/rooms/${encodeURIComponent(code)}`);
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`lookup failed: ${res.status} ${await res.text()}`);
-  return (await res.json()) as RoomInfo;
+  if (res.status !== 200) throw new Error(`lookup failed: ${res.status} ${res.text}`);
+  return res.json<RoomInfo>();
 }
 
 export async function runRoom(args: string[]) {

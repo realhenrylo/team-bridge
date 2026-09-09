@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
+import { agentFor } from './net';
 import {
   ServerMessage,
   type AgentInfo,
@@ -52,7 +53,9 @@ export class HubClient extends EventEmitter {
     if (this.closed) return;
     const url = new URL('/ws', this.opts.hub);
     url.searchParams.set('room', this.opts.room);
-    const ws = new WebSocket(url);
+    const agent = agentFor(url);
+    if (agent) this.opts.log('connecting via proxy');
+    const ws = new WebSocket(url, { agent });
     this.ws = ws;
 
     ws.on('open', () => {

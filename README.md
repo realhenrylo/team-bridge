@@ -5,7 +5,7 @@ Cross-machine `ListAgents` / `SendMessage` for a team of Claude Code users. Sess
 ```
 packages/protocol   zod schemas shared by hub and client
 packages/hub        Cloudflare Worker + TeamRoom Durable Object (registry, routing, offline inbox)
-packages/bridge     CLI bundled into plugin/bin: `mcp` (tools + WebSocket), `hook` (Claude Code hooks), `team` (/team switches), `login`
+packages/bridge     CLI bundled into plugin/dist: `mcp` (tools + WebSocket), `hook` (Claude Code hooks), `team` (/team switches), `login`
 plugin/             Claude Code plugin: .mcp.json, hooks, /team command
 ```
 
@@ -16,7 +16,7 @@ pnpm install
 cd packages/hub
 npx wrangler login
 npx wrangler secret put CREATE_TOKEN    # optional: gate room creation (joining only needs the code)
-npx wrangler deploy                     # -> https://team-bridge-hub.<you>.workers.dev
+npx wrangler deploy                     # -> https://team-bridge-hub.huanlinluo7.workers.dev
 ```
 
 `ROOM_IDLE_DAYS` lives in `wrangler.jsonc` (`vars`).
@@ -92,6 +92,10 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 - Recipient's MCP process spools the message; the next hook (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) drains it via a local unix socket and injects it as `<team-message>` context. Hooks never touch the network.
 - `Stop` with unread mail returns `decision: block` so Claude handles it before going idle.
 - A plugin **monitor** (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message; Claude Code delivers stdout lines as notifications, which is how an idle session learns there is mail. It never consumes messages. A desktop notification is sent as well.
+
+## Proxies
+
+`*.workers.dev` is unreachable directly from some networks. The bridge honors `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` (and `NO_PROXY`) for both the room HTTP calls and the WebSocket, so if `curl` reaches the hub through your proxy, the plugin will too. `localhost` hubs always connect directly.
 
 ## Where things live
 

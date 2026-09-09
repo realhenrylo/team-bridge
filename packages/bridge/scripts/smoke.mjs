@@ -15,7 +15,7 @@ process.env.CLAUDE_PLUGIN_DATA = `${S}/plugin-data`;
 process.env.CLAUDE_PLUGIN_OPTION_HUB = process.env.HUB ?? 'ws://localhost:8799';
 process.env.CLAUDE_PLUGIN_OPTION_USER = 'Henry Lo';
 delete process.env.TEAM_BRIDGE_HOME;
-const bin = `${R}/plugin/bin/team-bridge.cjs`;
+const bin = `${R}/plugin/dist/team-bridge.cjs`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (res) => res.content.map((c) => c.text).join('\n');
 
@@ -100,7 +100,7 @@ if (process.env.EXPIRY === '1') {
   const base = process.env.CLAUDE_PLUGIN_OPTION_HUB.replace(/^ws/, 'http');
   const t0 = Date.now();
   for (;;) {
-    const res = await fetch(`${base}/rooms/${code}`);
+    const res = await fetch(`${base}/rooms/${code}`); // note: plain fetch ignores proxies; expiry check is for local hubs
     if (res.status === 404) { console.log(`room ${code} destroyed after ${Math.round((Date.now() - t0) / 1000)}s`); break; }
     if (Date.now() - t0 > 120_000) { console.log('room still alive after 120s — expiry FAILED'); process.exitCode = 1; break; }
     await sleep(5000);
