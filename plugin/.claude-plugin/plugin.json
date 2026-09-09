@@ -1,22 +1,16 @@
 {
   "name": "team-bridge",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Connect this Claude Code session to a team room: list colleagues' sessions and message them (team_list_agents / team_send_message).",
   "author": {
     "name": "henrylo"
   },
   "userConfig": {
-    "hub": {
-      "type": "string",
-      "title": "Hub URL",
-      "description": "Your team's hub, e.g. wss://hub.agentroom.online",
-      "required": true
-    },
     "user": {
       "type": "string",
       "title": "Your name",
-      "description": "Shown to colleagues as part of your session name (letters/digits, e.g. alice)",
-      "required": true
+      "description": "Shown to colleagues as part of your session name (letters/digits, e.g. alice). Defaults to your OS user name.",
+      "required": false
     },
     "create_token": {
       "type": "string",

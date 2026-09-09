@@ -12161,18 +12161,15 @@ var DIRS = {
 function ensureDirs() {
   for (const d of Object.values(DIRS)) import_node_fs.default.mkdirSync(d, { recursive: true });
 }
+var DEFAULT_HUB = "wss://hub.agentroom.online";
 var CRED_PATH = import_node_path.default.join(HOME, "credentials.json");
 function readCredentials() {
-  const hub = process.env.CLAUDE_PLUGIN_OPTION_HUB;
-  const user = process.env.CLAUDE_PLUGIN_OPTION_USER;
-  if (hub && user) {
-    return {
-      hub: hub.replace(/^http/, "ws"),
-      user: normalizeUser(user),
-      ...process.env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN ? { createToken: process.env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN } : {}
-    };
-  }
-  return readJson(CRED_PATH);
+  const env2 = process.env;
+  const file = readJson(CRED_PATH) ?? {};
+  const hub = env2.CLAUDE_PLUGIN_OPTION_HUB || env2.TEAM_BRIDGE_HUB || file.hub || DEFAULT_HUB;
+  const user = env2.CLAUDE_PLUGIN_OPTION_USER || file.user || import_node_os.default.userInfo().username;
+  const createToken = env2.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN || file.createToken;
+  return { hub: hub.replace(/^http/, "ws"), user: normalizeUser(user), ...createToken ? { createToken } : {} };
 }
 function normalizeUser(u) {
   return u.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "user";
@@ -12419,11 +12416,11 @@ function runLogin(args) {
     const i = args.indexOf(`--${k}`);
     return i >= 0 ? args[i + 1] : void 0;
   };
-  const hub = get("hub");
+  const hub = get("hub") ?? DEFAULT_HUB;
   const user = get("user");
   const createToken = get("create-token");
-  if (!hub || !user) {
-    console.error("usage: team-bridge login --hub wss://<worker>.workers.dev --user <your name> [--create-token <token>]");
+  if (!user) {
+    console.error("usage: team-bridge login --user <your name> [--hub wss://...] [--create-token <token>]");
     process.exitCode = 1;
     return;
   }
@@ -27007,8 +27004,8 @@ async function runMcp() {
   };
   writeMeta(meta);
   const switches = () => effective(readState(), sessionId);
-  const inactiveReason = () => !creds ? "not logged in \u2014 run `team-bridge login --hub <url> --user <name>` (see plugin README)" : !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
-  if (creds && project) {
+  const inactiveReason = () => !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
+  if (project) {
     hub = new HubClient({
       hub: creds.hub,
       room: project.room,
@@ -27164,7 +27161,7 @@ async function runMcp() {
       const s = switches();
       const text = [
         `name: ${hub?.name || "(not registered)"} [${ref}]`,
-        `hub: ${creds?.hub ?? "(no credentials)"}  room: ${project?.room ?? "(no .team-bridge.json)"}`,
+        `hub: ${creds.hub}  room: ${project?.room ?? "(no .team-bridge.json)"}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.length}`,
@@ -27214,9 +27211,7 @@ function pick2(cwd, around) {
 
 // src/room.ts
 function httpBase() {
-  const creds = readCredentials();
-  if (!creds) throw new Error("not logged in \u2014 run `team-bridge login --hub <url> --user <name>` first");
-  return creds.hub.replace(/^ws/, "http");
+  return readCredentials().hub.replace(/^ws/, "http");
 }
 async function createRoom(name) {
   const creds = readCredentials();
@@ -27224,7 +27219,7 @@ async function createRoom(name) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...creds?.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}
+      ...creds.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}
     },
     body: JSON.stringify({ name })
   });

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { spawn as spawnProc } from 'node:child_process';
 const S = process.env.S ?? '/tmp/tb-smoke', R = process.env.R ?? path.resolve(import.meta.dirname, '../../..');
 process.env.CLAUDE_PLUGIN_DATA = `${S}/plugin-data`;
-process.env.CLAUDE_PLUGIN_OPTION_HUB = process.env.HUB ?? 'ws://localhost:8799';
+if (process.env.HUB !== 'default') process.env.TEAM_BRIDGE_HUB = process.env.HUB ?? 'ws://localhost:8799'; // HUB=default -> built-in hub
 process.env.CLAUDE_PLUGIN_OPTION_USER = 'Henry Lo';
 delete process.env.TEAM_BRIDGE_HOME;
 const bin = `${R}/plugin/dist/team-bridge.cjs`;
@@ -107,7 +107,7 @@ await A.close();
 
 if (process.env.EXPIRY === '1') {
   console.log('--- room expiry: nobody connected, waiting for the alarm (~65s)');
-  const base = process.env.CLAUDE_PLUGIN_OPTION_HUB.replace(/^ws/, 'http');
+  const base = (process.env.TEAM_BRIDGE_HUB ?? 'wss://hub.agentroom.online').replace(/^ws/, 'http');
   const t0 = Date.now();
   for (;;) {
     const res = await fetch(`${base}/rooms/${code}`); // note: plain fetch ignores proxies; expiry check is for local hubs

@@ -24,9 +24,12 @@ export function ensureDirs() {
 }
 
 // ---- credentials -----------------------------------------------------------
-// Normally these come from the plugin's `userConfig` (Claude Code prompts on
-// enable and exports them as CLAUDE_PLUGIN_OPTION_*). credentials.json is the
-// fallback for running the CLI outside Claude (`team-bridge login`, smoke tests).
+// The hub is fixed; the display name comes from the plugin's `userConfig`
+// (Claude Code prompts on enable and exports CLAUDE_PLUGIN_OPTION_*), falling
+// back to the OS user name. TEAM_BRIDGE_HUB / credentials.json exist for
+// self-hosters and for running the CLI outside Claude (smoke tests).
+
+export const DEFAULT_HUB = 'wss://hub.agentroom.online';
 
 export interface Credentials {
   hub: string; // wss://team-bridge-hub.<you>.workers.dev
@@ -36,17 +39,13 @@ export interface Credentials {
 
 const CRED_PATH = path.join(HOME, 'credentials.json');
 
-export function readCredentials(): Credentials | null {
-  const hub = process.env.CLAUDE_PLUGIN_OPTION_HUB;
-  const user = process.env.CLAUDE_PLUGIN_OPTION_USER;
-  if (hub && user) {
-    return {
-      hub: hub.replace(/^http/, 'ws'),
-      user: normalizeUser(user),
-      ...(process.env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN ? { createToken: process.env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN } : {}),
-    };
-  }
-  return readJson<Credentials>(CRED_PATH);
+export function readCredentials(): Credentials {
+  const env = process.env;
+  const file = readJson<Partial<Credentials>>(CRED_PATH) ?? {};
+  const hub = env.CLAUDE_PLUGIN_OPTION_HUB || env.TEAM_BRIDGE_HUB || file.hub || DEFAULT_HUB;
+  const user = env.CLAUDE_PLUGIN_OPTION_USER || file.user || os.userInfo().username;
+  const createToken = env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN || file.createToken;
+  return { hub: hub.replace(/^http/, 'ws'), user: normalizeUser(user), ...(createToken ? { createToken } : {}) };
 }
 
 export function normalizeUser(u: string) {

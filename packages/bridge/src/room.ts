@@ -15,9 +15,7 @@ export interface RoomInfo {
 }
 
 function httpBase(): string {
-  const creds = readCredentials();
-  if (!creds) throw new Error('not logged in — run `team-bridge login --hub <url> --user <name>` first');
-  return creds.hub.replace(/^ws/, 'http');
+  return readCredentials().hub.replace(/^ws/, 'http');
 }
 
 export async function createRoom(name: string): Promise<RoomInfo> {
@@ -26,7 +24,7 @@ export async function createRoom(name: string): Promise<RoomInfo> {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(creds?.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}),
+      ...(creds.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}),
     },
     body: JSON.stringify({ name }),
   });

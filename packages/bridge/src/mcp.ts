@@ -46,14 +46,13 @@ export async function runMcp() {
   const switches = () => effective(readState(), sessionId);
 
   const inactiveReason = () =>
-    !creds ? 'not logged in — run `team-bridge login --hub <url> --user <name>` (see plugin README)'
-    : !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
+    !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
     : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)`
     : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
     : null;
 
   // ---- hub connection ----------------------------------------------------
-  if (creds && project) {
+  if (project) {
     hub = new HubClient({
       hub: creds.hub, room: project.room, log,
       hello: {
@@ -206,7 +205,7 @@ export async function runMcp() {
       const s = switches();
       const text = [
         `name: ${hub?.name || '(not registered)'} [${ref}]`,
-        `hub: ${creds?.hub ?? '(no credentials)'}  room: ${project?.room ?? '(no .team-bridge.json)'}`,
+        `hub: ${creds.hub}  room: ${project?.room ?? '(no .team-bridge.json)'}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.length}`,

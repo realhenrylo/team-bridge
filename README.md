@@ -16,10 +16,10 @@ pnpm install
 cd packages/hub
 npx wrangler login
 npx wrangler secret put CREATE_TOKEN    # optional: gate room creation (joining only needs the code)
-npx wrangler deploy                     # -> https://hub.agentroom.online (+ workers.dev fallback)
+npx wrangler deploy                     # -> https://hub.agentroom.online
 ```
 
-`ROOM_IDLE_DAYS` lives in `wrangler.jsonc` (`vars`). The custom domain is declared there too (`routes` with `custom_domain: true`); wrangler creates the DNS record and certificate on deploy. `https://team-bridge-hub.huanlinluo7.workers.dev` stays enabled as a fallback address.
+`ROOM_IDLE_DAYS` lives in `wrangler.jsonc` (`vars`). The custom domain is declared there too (`routes` with `custom_domain: true`); wrangler creates the DNS record and certificate on deploy. The `workers.dev` URL is disabled — it is blocked on some networks and the custom domain is not.
 
 ## Build the plugin
 
@@ -67,7 +67,7 @@ Local development without installing: `claude --plugin-dir ./plugin`, then `/rel
 
 ## Per colleague
 
-Installing the plugin prompts for the hub URL and a display name (plugin `userConfig`; stored in `~/.claude/settings.json`, the optional create token in the Keychain). Then, inside `claude` in the repo:
+Installing the plugin asks for a display name (optional — defaults to your OS user name) and an optional room-creation token. The hub (`wss://hub.agentroom.online`) is built in; self-hosters override it with `TEAM_BRIDGE_HUB`. Then, inside `claude` in the repo:
 
 ```
 /team create --name backend   # open a room and join this repo to it; share the code
@@ -82,7 +82,7 @@ pnpm hub:dev -- --port 8799
 S=/tmp/tb-smoke pnpm --filter @team-bridge/bridge smoke   # creates a room, joins two dirs, exercises everything
 ```
 
-The smoke test sets `CLAUDE_PLUGIN_DATA` / `CLAUDE_PLUGIN_OPTION_*` itself. To drive the CLI by hand outside Claude, `team-bridge login --hub ... --user ...` writes a fallback `credentials.json`.
+The smoke test sets `CLAUDE_PLUGIN_DATA` / `CLAUDE_PLUGIN_OPTION_*` itself; `HUB=default` runs it against the built-in hub. To drive the CLI by hand outside Claude, `team-bridge login --user ...` writes a fallback `credentials.json`.
 
 Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` to also watch the empty room get destroyed (~1 min).
 
@@ -102,7 +102,7 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 | What | Where |
 |---|---|
 | `state.json` (switches), `credentials.json` (fallback), inbox spool | `${CLAUDE_PLUGIN_DATA}` = `~/.claude/plugins/data/<plugin-id>/` — survives updates, removed on uninstall |
-| hub URL, user name, create token | plugin `userConfig` → `~/.claude/settings.json` / Keychain, exported as `CLAUDE_PLUGIN_OPTION_*` |
+| user name, create token | plugin `userConfig` → `~/.claude/settings.json` / Keychain, exported as `CLAUDE_PLUGIN_OPTION_*`; hub URL is built in (`DEFAULT_HUB`, override `TEAM_BRIDGE_HUB`) |
 | unix sockets + meta | `os.tmpdir()/team-bridge-<uid>/` (short paths; per-process, ephemeral) |
 | `.team-bridge.json` (room code) | repo root, committed or not as the team prefers |
 | the bundled CLI | `${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs` — read-only, replaced on update |
