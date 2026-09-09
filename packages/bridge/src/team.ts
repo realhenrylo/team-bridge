@@ -21,7 +21,7 @@ export async function runTeam(args: string[]) {
     const r = await createRoom(i >= 0 ? args[i + 1] ?? '' : '');
     writeProjectConfig(cwd, r.code);
     console.log(`room created: ${r.code}${r.name ? ` (${r.name})` : ''}; this directory joined it (${path.join(cwd, PROJECT_FILE)}).`);
-    console.log(`share the code — colleagues run \`/team join ${r.code}\` in their repo. Restart claude here to connect.`);
+    console.log(`share the code — colleagues run \`/team join ${r.code}\` in their repo. This session connects within a few seconds.`);
     return;
   }
   if (cmd === 'join') {
@@ -30,7 +30,7 @@ export async function runTeam(args: string[]) {
     const info = await roomInfo(code);
     if (!info) { console.error(`room ${code} does not exist or has expired`); process.exitCode = 1; return; }
     writeProjectConfig(cwd, info.code);
-    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ''}; wrote ${path.join(cwd, PROJECT_FILE)}. Restart claude here to connect.`);
+    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ''}; wrote ${path.join(cwd, PROJECT_FILE)}. This session connects within a few seconds — no restart needed.`);
     return;
   }
   if (cmd === 'leave') {

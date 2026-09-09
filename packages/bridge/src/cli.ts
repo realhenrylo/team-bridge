@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { runHook } from './hook';
-import { runLogin } from './login';
+import { runConfigure } from './configure';
 import { runMcp } from './mcp';
 import { runMonitor } from './monitor';
 import { runRoom } from './room';
@@ -16,14 +16,14 @@ async function main() {
       return runHook(rest[0] ?? '');
     case 'team':
       return runTeam(rest);
-    case 'login':
-      return runLogin(rest);
+    case 'configure':
+      return runConfigure(rest);
     case 'room':
       return runRoom(rest);
     case 'monitor':
       return runMonitor();
     default:
-      console.error('usage: team-bridge <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | login ...>');
+      console.error('usage: team-bridge <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | configure ...>');
       process.exitCode = 1;
   }
 }

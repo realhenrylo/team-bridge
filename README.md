@@ -5,7 +5,7 @@ Cross-machine `ListAgents` / `SendMessage` for a team of Claude Code users. Sess
 ```
 packages/protocol   zod schemas shared by hub and client
 packages/hub        Cloudflare Worker + TeamRoom Durable Object (registry, routing, offline inbox)
-packages/bridge     CLI bundled into plugin/dist: `mcp` (tools + WebSocket), `hook` (Claude Code hooks), `team` (/team switches), `login`
+packages/bridge     CLI bundled into plugin/dist: `mcp` (tools + WebSocket), `hook` (Claude Code hooks), `team` (/team switches), `configure`
 plugin/             Claude Code plugin: .mcp.json, hooks, /team command
 ```
 
@@ -71,7 +71,7 @@ Installing the plugin asks for a display name (optional — defaults to your OS 
 
 ```
 /team create --name backend   # open a room and join this repo to it; share the code
-/team join 4BCD-2QQF          # or join an existing one; restart claude to connect
+/team join 4BCD-2QQF          # or join an existing one; connects within seconds
 /team status
 ```
 
@@ -82,7 +82,7 @@ pnpm hub:dev -- --port 8799
 S=/tmp/tb-smoke pnpm --filter @team-bridge/bridge smoke   # creates a room, joins two dirs, exercises everything
 ```
 
-The smoke test sets `CLAUDE_PLUGIN_DATA` / `CLAUDE_PLUGIN_OPTION_*` itself; `HUB=default` runs it against the built-in hub. To drive the CLI by hand outside Claude, `team-bridge login --user ...` writes a fallback `credentials.json`.
+The smoke test sets `CLAUDE_PLUGIN_DATA` / `CLAUDE_PLUGIN_OPTION_*` itself; `HUB=default` runs it against the built-in hub. To drive the CLI by hand outside Claude, `team-bridge configure --user ...` writes a fallback `credentials.json` (there is no login — rooms are the only credential).
 
 Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` to also watch the empty room get destroyed (~1 min).
 

@@ -12,14 +12,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function runMonitor() {
   const cwd = process.cwd();
-  if (!findProjectConfig(cwd)) return; // not in a room: exit quietly, nothing to watch
   const startedAt = Date.now();
+
+  // not in a room yet? `/team join` may put us in one later — wait for it
+  while (!findProjectConfig(cwd)) await sleep(3000);
 
   let meta: SockMeta | null = null;
   for (;;) {
     meta = pick(cwd, startedAt);
     if (meta) break;
-    if (Date.now() - startedAt > 60_000) return; // bridge never came up (plugin off?)
+    if (Date.now() - startedAt > 10 * 60_000) return; // bridge never came up (plugin off?)
     await sleep(1000);
   }
 
@@ -41,9 +43,9 @@ export async function runMonitor() {
   }
 }
 
-/** Newest bridge process in this cwd started around the same time as us. */
+/** Bridge process in this cwd, preferring the one started closest to us. */
 function pick(cwd: string, around: number): SockMeta | null {
   return listMeta()
-    .filter((m) => m.cwd === cwd && Math.abs(m.startedAt - around) < 120_000)
-    .sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+    .filter((m) => m.cwd === cwd)
+    .sort((a, b) => Math.abs(a.startedAt - around) - Math.abs(b.startedAt - around))[0] ?? null;
 }

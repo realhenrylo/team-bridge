@@ -22,7 +22,7 @@ export async function runMcp() {
   ensureDirs();
   const cwd = process.cwd();
   const creds = readCredentials();
-  const project = findProjectConfig(cwd);
+  let project = findProjectConfig(cwd);
   const ref = crypto.randomBytes(3).toString('hex');
   const inbox: InboundMessage[] = [];
   const spool = path.join(DIRS.inbox, `${process.pid}.jsonl`);
@@ -52,9 +52,14 @@ export async function runMcp() {
     : null;
 
   // ---- hub connection ----------------------------------------------------
-  if (project) {
+  // `/team join` / `/team create` write .team-bridge.json while this process
+  // is already running, so watch for it instead of demanding a restart; and
+  // drop the connection if `/team leave` removes it.
+  const connect = () => {
+    if (!project || hub) return;
+    const room = project.room;
     hub = new HubClient({
-      hub: creds.hub, room: project.room, log,
+      hub: creds.hub, room, log,
       hello: {
         ref, user: creds.user, host: os.hostname(), cwd,
         repo: path.basename(project.root), visible: switches().visible, status,
@@ -75,18 +80,37 @@ export async function runMcp() {
       inbox.push(m);
       if (!switches().dnd) wake(m);
     });
-    hub.on('welcome', (w: { name: string; resumed: boolean }) => log(`registered as ${w.name}${w.resumed ? ' (resumed)' : ''}`));
-    if (switches().enabled) hub.connect();
+    hub.on('welcome', (w: { name: string; resumed: boolean }) => log(`registered as ${w.name} in room ${room}${w.resumed ? ' (resumed)' : ''}`));
+    hub.connect();
+  };
+  const disconnect = (why: string) => {
+    if (!hub) return;
+    hub.close();
+    hub = null;
+    log(why);
+  };
 
-    // react to /team edits
-    fs.watchFile(statePath(), { interval: 1000 }, () => {
-      const s = switches();
-      if (!s.enabled && hub?.connected) { hub.close(); hub = null; log('switched off'); }
-      hub?.setVisible(s.visible);
-    });
-  } else {
-    log(inactiveReason());
-  }
+  if (project && switches().enabled) connect();
+  else log(inactiveReason());
+
+  // react to /team edits (state.json) and to the room file appearing/disappearing
+  fs.watchFile(statePath(), { interval: 1000 }, () => {
+    const s = switches();
+    if (!s.enabled) disconnect('switched off');
+    else if (project && !hub) connect();
+    hub?.setVisible(s.visible);
+  });
+  setInterval(() => {
+    const now = findProjectConfig(cwd);
+    if (now && (!project || now.room !== project.room)) {
+      disconnect(`room changed`);
+      project = now;
+      if (switches().enabled) connect();
+    } else if (!now && project) {
+      project = null;
+      disconnect('left room');
+    }
+  }, 2000).unref();
 
   // ---- local socket for hooks --------------------------------------------
   const drain = () => {
@@ -156,10 +180,14 @@ export async function runMcp() {
       const now = Date.now();
       const me = agents.find((a) => a.ref === h.ref);
       const others = agents.filter((a) => a.ref !== h.ref);
+      const total = others.length + 1;
       const lines = [
-        `This session is ${h.name} [${h.ref}]${me ? '' : ' (hidden)'} — the name colleagues use to message it.`,
+        `Room ${project?.room}: ${total} session${total === 1 ? '' : 's'} online (including you).`,
+        `You are ${h.name} [${h.ref}]${me ? '' : ' (hidden from others)'} — colleagues message you by that name.`,
         '',
-        others.length ? `Team sessions (${others.length}):` : 'No other sessions are online right now.',
+        others.length
+          ? `Other sessions (${others.length}) — message them with team_send_message:`
+          : 'Nobody else is online in this room right now.',
         ...others.map((a) => '  ' + formatAgentLine(a, now)),
       ];
       return { content: [{ type: 'text', text: lines.join('\n') }] };

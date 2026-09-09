@@ -12410,8 +12410,8 @@ async function resolveSocket(sessionId, cwd) {
   return sameCwd[0] ?? null;
 }
 
-// src/login.ts
-function runLogin(args) {
+// src/configure.ts
+function runConfigure(args) {
   const get = (k) => {
     const i = args.indexOf(`--${k}`);
     return i >= 0 ? args[i + 1] : void 0;
@@ -12420,12 +12420,12 @@ function runLogin(args) {
   const user = get("user");
   const createToken = get("create-token");
   if (!user) {
-    console.error("usage: team-bridge login --user <your name> [--hub wss://...] [--create-token <token>]");
+    console.error("usage: team-bridge configure --user <your name> [--hub wss://...] [--create-token <token>]");
     process.exitCode = 1;
     return;
   }
   writeCredentials({ hub: hub.replace(/^http/, "ws"), user: normalizeUser(user), ...createToken ? { createToken } : {} });
-  console.log(`saved credentials for ${user} -> ${hub}`);
+  console.log(`saved local config: user=${normalizeUser(user)} hub=${hub}`);
 }
 
 // src/mcp.ts
@@ -26982,7 +26982,7 @@ async function runMcp() {
   ensureDirs();
   const cwd = process.cwd();
   const creds = readCredentials();
-  const project = findProjectConfig(cwd);
+  let project = findProjectConfig(cwd);
   const ref = import_node_crypto.default.randomBytes(3).toString("hex");
   const inbox = [];
   const spool = import_node_path3.default.join(DIRS.inbox, `${process.pid}.jsonl`);
@@ -27005,10 +27005,12 @@ async function runMcp() {
   writeMeta(meta);
   const switches = () => effective(readState(), sessionId);
   const inactiveReason = () => !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
-  if (project) {
+  const connect = () => {
+    if (!project || hub) return;
+    const room = project.room;
     hub = new HubClient({
       hub: creds.hub,
-      room: project.room,
+      room,
       log,
       hello: {
         ref,
@@ -27038,20 +27040,34 @@ async function runMcp() {
       inbox.push(m);
       if (!switches().dnd) wake(m);
     });
-    hub.on("welcome", (w) => log(`registered as ${w.name}${w.resumed ? " (resumed)" : ""}`));
-    if (switches().enabled) hub.connect();
-    import_node_fs4.default.watchFile(statePath(), { interval: 1e3 }, () => {
-      const s = switches();
-      if (!s.enabled && hub?.connected) {
-        hub.close();
-        hub = null;
-        log("switched off");
-      }
-      hub?.setVisible(s.visible);
-    });
-  } else {
-    log(inactiveReason());
-  }
+    hub.on("welcome", (w) => log(`registered as ${w.name} in room ${room}${w.resumed ? " (resumed)" : ""}`));
+    hub.connect();
+  };
+  const disconnect = (why) => {
+    if (!hub) return;
+    hub.close();
+    hub = null;
+    log(why);
+  };
+  if (project && switches().enabled) connect();
+  else log(inactiveReason());
+  import_node_fs4.default.watchFile(statePath(), { interval: 1e3 }, () => {
+    const s = switches();
+    if (!s.enabled) disconnect("switched off");
+    else if (project && !hub) connect();
+    hub?.setVisible(s.visible);
+  });
+  setInterval(() => {
+    const now = findProjectConfig(cwd);
+    if (now && (!project || now.room !== project.room)) {
+      disconnect(`room changed`);
+      project = now;
+      if (switches().enabled) connect();
+    } else if (!now && project) {
+      project = null;
+      disconnect("left room");
+    }
+  }, 2e3).unref();
   const drain = () => {
     const out = inbox.splice(0, inbox.length);
     if (out.length) import_node_fs4.default.writeFileSync(spool, "");
@@ -27122,10 +27138,12 @@ async function runMcp() {
       const now = Date.now();
       const me = agents.find((a) => a.ref === h.ref);
       const others = agents.filter((a) => a.ref !== h.ref);
+      const total = others.length + 1;
       const lines = [
-        `This session is ${h.name} [${h.ref}]${me ? "" : " (hidden)"} \u2014 the name colleagues use to message it.`,
+        `Room ${project?.room}: ${total} session${total === 1 ? "" : "s"} online (including you).`,
+        `You are ${h.name} [${h.ref}]${me ? "" : " (hidden from others)"} \u2014 colleagues message you by that name.`,
         "",
-        others.length ? `Team sessions (${others.length}):` : "No other sessions are online right now.",
+        others.length ? `Other sessions (${others.length}) \u2014 message them with team_send_message:` : "Nobody else is online in this room right now.",
         ...others.map((a) => "  " + formatAgentLine(a, now))
       ];
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -27177,13 +27195,13 @@ async function runMcp() {
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function runMonitor() {
   const cwd = process.cwd();
-  if (!findProjectConfig(cwd)) return;
   const startedAt = Date.now();
+  while (!findProjectConfig(cwd)) await sleep(3e3);
   let meta = null;
   for (; ; ) {
     meta = pick2(cwd, startedAt);
     if (meta) break;
-    if (Date.now() - startedAt > 6e4) return;
+    if (Date.now() - startedAt > 10 * 6e4) return;
     await sleep(1e3);
   }
   for (; ; ) {
@@ -27206,7 +27224,7 @@ async function runMonitor() {
   }
 }
 function pick2(cwd, around) {
-  return listMeta().filter((m) => m.cwd === cwd && Math.abs(m.startedAt - around) < 12e4).sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+  return listMeta().filter((m) => m.cwd === cwd).sort((a, b) => Math.abs(a.startedAt - around) - Math.abs(b.startedAt - around))[0] ?? null;
 }
 
 // src/room.ts
@@ -27274,7 +27292,7 @@ async function runTeam(args) {
     const r = await createRoom(i >= 0 ? args[i + 1] ?? "" : "");
     writeProjectConfig(cwd, r.code);
     console.log(`room created: ${r.code}${r.name ? ` (${r.name})` : ""}; this directory joined it (${import_node_path4.default.join(cwd, PROJECT_FILE)}).`);
-    console.log(`share the code \u2014 colleagues run \`/team join ${r.code}\` in their repo. Restart claude here to connect.`);
+    console.log(`share the code \u2014 colleagues run \`/team join ${r.code}\` in their repo. This session connects within a few seconds.`);
     return;
   }
   if (cmd2 === "join") {
@@ -27291,7 +27309,7 @@ async function runTeam(args) {
       return;
     }
     writeProjectConfig(cwd, info.code);
-    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; wrote ${import_node_path4.default.join(cwd, PROJECT_FILE)}. Restart claude here to connect.`);
+    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; wrote ${import_node_path4.default.join(cwd, PROJECT_FILE)}. This session connects within a few seconds \u2014 no restart needed.`);
     return;
   }
   if (cmd2 === "leave") {
@@ -27349,14 +27367,14 @@ async function main() {
       return runHook(rest[0] ?? "");
     case "team":
       return runTeam(rest);
-    case "login":
-      return runLogin(rest);
+    case "configure":
+      return runConfigure(rest);
     case "room":
       return runRoom(rest);
     case "monitor":
       return runMonitor();
     default:
-      console.error("usage: team-bridge <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | login ...>");
+      console.error("usage: team-bridge <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | configure ...>");
       process.exitCode = 1;
   }
 }
