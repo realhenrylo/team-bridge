@@ -43,7 +43,17 @@ try {
 
 const A = await spawn(`${S}/repoA`);
 const B = await spawn(`${S}/repoB`);
-await sleep(1500); // let both register
+// wait until both have registered with the hub (slow links / proxies can take a few seconds)
+async function untilConnected(c, label) {
+  for (let i = 0; i < 40; i++) {
+    const st = text(await c.callTool({ name: 'team_status', arguments: {} }));
+    if (/connected: true/.test(st)) return;
+    await sleep(500);
+  }
+  throw new Error(`${label} never connected to the hub`);
+}
+await Promise.all([untilConnected(A, 'A'), untilConnected(B, 'B')]);
+await sleep(300);
 
 console.log('--- A: team_list_agents');
 const list = text(await A.callTool({ name: 'team_list_agents', arguments: {} }));

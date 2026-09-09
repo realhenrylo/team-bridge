@@ -16,10 +16,10 @@ pnpm install
 cd packages/hub
 npx wrangler login
 npx wrangler secret put CREATE_TOKEN    # optional: gate room creation (joining only needs the code)
-npx wrangler deploy                     # -> https://team-bridge-hub.huanlinluo7.workers.dev
+npx wrangler deploy                     # -> https://hub.agentroom.online (+ workers.dev fallback)
 ```
 
-`ROOM_IDLE_DAYS` lives in `wrangler.jsonc` (`vars`).
+`ROOM_IDLE_DAYS` lives in `wrangler.jsonc` (`vars`). The custom domain is declared there too (`routes` with `custom_domain: true`); wrangler creates the DNS record and certificate on deploy. `https://team-bridge-hub.huanlinluo7.workers.dev` stays enabled as a fallback address.
 
 ## Build the plugin
 

@@ -1,6 +1,6 @@
 {
   "name": "team-bridge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Connect this Claude Code session to a team room: list colleagues' sessions and message them (team_list_agents / team_send_message).",
   "author": {
     "name": "henrylo"
@@ -9,7 +9,7 @@
     "hub": {
       "type": "string",
       "title": "Hub URL",
-      "description": "Your team's hub, e.g. wss://team-bridge-hub.huanlinluo7.workers.dev",
+      "description": "Your team's hub, e.g. wss://hub.agentroom.online",
       "required": true
     },
     "user": {

@@ -3,6 +3,10 @@
   "name": "team-bridge-hub",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
+  // custom domain: wrangler creates the DNS record + certificate on deploy
+  "routes": [{ "pattern": "hub.agentroom.online", "custom_domain": true }],
+  // keep the workers.dev URL alive as a fallback address
+  "workers_dev": true,
   "vars": {
     // days without any activity before a room is destroyed
     "ROOM_IDLE_DAYS": "7"
