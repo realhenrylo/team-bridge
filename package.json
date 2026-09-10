@@ -6,7 +6,7 @@
     "build": "pnpm -r --filter ./packages/protocol run build && pnpm -r --filter ./packages/bridge run build && node scripts/package-plugins.mjs",
     "typecheck": "pnpm -r run typecheck",
     "hub:dev": "pnpm --filter @team-bridge/hub dev",
-    "hub:deploy": "pnpm --filter @team-bridge/hub deploy"
+    "hub:deploy": "pnpm --filter @team-bridge/hub run deploy"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
