@@ -11,7 +11,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 async function main() {
   switch (cmd) {
     case 'mcp':
-      return runMcp();
+      return runMcp(rest.includes('--codex') ? 'codex' : 'claude');
     case 'hook':
       return runHook(rest[0] ?? '');
     case 'team':

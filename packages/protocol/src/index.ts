@@ -35,8 +35,8 @@ export type InboundMessage = z.infer<typeof InboundMessage>;
 export const ClientMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('hello'),
-    // client-generated, stable for the life of the bridge process so a
-    // reconnect resumes the same identity and picks up queued messages
+    // client-generated and persisted per host conversation so a
+    // reconnect/resume keeps its identity and picks up queued messages
     ref: Ref,
     user: z.string().min(1),
     host: z.string(),

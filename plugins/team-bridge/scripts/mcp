@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+const path = require('node:path');
+const os = require('node:os');
+process.env.TEAM_BRIDGE_HOME ||= process.env.PLUGIN_DATA || path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'team-bridge');
+process.argv = [process.argv[0], __filename, 'mcp', '--codex'];
+require('../dist/team-bridge.cjs');

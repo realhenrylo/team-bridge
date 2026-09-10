@@ -10,7 +10,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/delivery.test.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

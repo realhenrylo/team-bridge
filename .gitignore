@@ -4,3 +4,5 @@ dist/
 plugin/dist/*.map
 .wrangler
 .dev.vars
+!plugins/team-bridge/dist/
+plugins/team-bridge/dist/*.map

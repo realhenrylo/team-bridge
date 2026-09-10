@@ -53,3 +53,18 @@
 真实 Claude Code 2.1.267 交互测试：会话 `7d99436c-2692-4842-83a4-a68a0d27e599` 首次连接后执行 `/exit`，再以 `claude --resume` 恢复。MCP PID 从 `91181` 变为 `92144`，名字均为 `resume-test-workspace-f39a`，ref 均为 `f39a44`，恢复后自动连接成功。测试使用本地 Cloudflare Hub。
 
 自动回归同时覆盖宿主地址和父进程链路径：MCP 重启、整个宿主退出后恢复、恢复 DND 设置、发给旧 ref 的离线消息、新会话隔离以及 Hook/MCP 两种启动顺序。本地 Hub smoke 额外验证实际 Hub 在重连后保留名字并投递离线消息。
+
+## 0.3.0 Codex 验收
+
+Codex CLI 0.153.4，macOS，本地 Cloudflare Hub，独立临时 `CODEX_HOME`。
+
+- 安装真实 Codex marketplace/package，而非只手动注册 MCP。安装包须以 `cwd: "."` 启动相对 launcher；业务 workspace 由 Hook 显式传入，不能用安装缓存目录。
+- 实际 MCP 请求包含 `_meta.threadId`；代码不从模型参数或同目录进程猜测身份。
+- 初始 `listening: false`；`team_control on` 后为 true。
+- 发送端测试客户端使用与 Claude 相同的 Hub 协议，向空闲 Codex 发只读审查请求。Codex 被队列通知唤醒，读取 `arithmetic.js`，找出 `a - b` 应为 `a + b`，并通过 `team_send_message` 返回 `CODEX_REVIEW_DONE`。首次读消息和发消息走了 Codex 自身审批，插件没有绕过审批。
+- 实际 `codex resume 01a089fd-ca2e-7290-8621-8d8e7b3e01ed` 后，首个用户回合重新绑定。MCP PID 从 `3628` 变为 `5383`，名字保持 `henrylo-work-3ea6`，ref 保持 `3ea6f2`，监听恢复默认关闭。未声称打开 resume UI 的瞬间一定完成绑定。
+- 自动测试覆盖缺失 metadata 时拒绝猜测、线程隔离、同连接拒绝跨线程绑定、开启前积压、通知不包含远程消息正文、DND、关闭监听后的 Hook 消费、重启保留 ref/off 设置、fork 身份分离、通知失败可见且不丢收件箱。
+
+桌面端和远程 App Server 的自动唤醒尚未验收；首版支持本地 CLI。原有两条 Claude 自动回归继续通过。
+
+恢复后的第二轮测试在隔离配置中预先允许相关 MCP 工具：06:56:30.085 UTC 投递，06:56:41.906 UTC 收到审查回复，期间没有向接收方键入内容。该结果验证获准工具下的自动闭环，并不取消默认审批要求。

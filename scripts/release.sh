@@ -6,9 +6,11 @@ set -euo pipefail
 v="${1:?version required, e.g. 0.3.0}"
 pnpm build
 node -e "
-const fs=require('fs');const p='plugin/.claude-plugin/plugin.json';
+const fs=require('fs');
+for (const p of ['plugin/.claude-plugin/plugin.json', 'plugins/team-bridge/.codex-plugin/plugin.json']) {
 const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='$v';
-fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
-echo "plugin/.claude-plugin/plugin.json -> $v; plugin/dist/team-bridge.cjs rebuilt."
+fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');
+}"
+echo "Both plugin manifests -> $v; both bridge bundles rebuilt."
 echo "next: git add -A && git commit -m 'release plugin $v' && git push"
 echo "colleagues: /plugin update team-bridge@team-bridge-marketplace (or auto-update)"

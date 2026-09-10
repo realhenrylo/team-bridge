@@ -1,0 +1,20 @@
+{
+  "name": "team-bridge",
+  "version": "0.3.0",
+  "description": "Connect Codex and Claude Code sessions through shared team rooms.",
+  "author": {
+    "name": "henrylo"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Team Bridge",
+    "shortDescription": "Message Codex and Claude teammates.",
+    "longDescription": "Join a team room, delegate work to colleagues, and receive replies in this Codex conversation. Incoming notifications are opt-in.",
+    "developerName": "henrylo",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use team-bridge to join my team room."
+  },
+  "mcpServers": "./.mcp.json",
+  "repository": "https://github.com/realhenrylo/team-bridge"
+}

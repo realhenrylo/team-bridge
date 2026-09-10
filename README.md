@@ -1,15 +1,28 @@
 # team-bridge
 
-Cross-machine `ListAgents` / `SendMessage` for a team of Claude Code users. Sessions meet in **rooms**: anyone creates a room, gets a code like `4BCD-2QQF`, and colleagues join their repos to it. Each room is one Cloudflare Durable Object — it hibernates for free between events and is destroyed after `ROOM_IDLE_DAYS` (default 7) without activity.
+Cross-machine messaging for teams using Claude Code and Codex. Sessions meet in **rooms**: anyone creates a room, gets a code like `4BCD-2QQF`, and colleagues join their repos to it. Each room is one Cloudflare Durable Object — it hibernates for free between events and is destroyed after `ROOM_IDLE_DAYS` (default 7) without activity.
 
-The full plugin command is `/team-bridge:team`; `/team` below is shorthand. If Claude reports `/team` as unknown, use the full name, for example `/team-bridge:team on`.
+For Codex installation and usage, see [the Codex guide](docs/codex.md).
+
+The full Claude plugin command is `/team-bridge:team`; `/team` below is shorthand. If Claude reports `/team` as unknown, use the full name, for example `/team-bridge:team on`.
 
 ```
-packages/protocol   zod schemas shared by hub and client
-packages/hub        Cloudflare Worker + TeamRoom Durable Object (registry, routing, offline inbox)
-packages/bridge     CLI bundled into plugin/dist: `mcp` (tools + WebSocket), `hook` (Claude Code hooks), `team` (/team switches), `configure`
-plugin/             Claude Code plugin: .mcp.json, hooks, /team command
+packages/protocol           shared wire protocol and validation
+packages/hub                Cloudflare room service (both hosts)
+packages/bridge             shared MCP, mailbox, room and identity logic
+packages/bridge/src/hosts   host-specific delivery adapters (Codex queue)
+plugin/                     existing Claude package; keep its install path stable
+plugins/team-bridge/        Codex package: skill, MCP launcher, lifecycle hooks
+.claude-plugin/             Claude marketplace catalog
+.agents/plugins/            Codex marketplace catalog
+scripts/                    build and release both self-contained packages
 ```
+
+The two installation packages contain the same generated bridge bundle. Host
+selection is explicit (`mcp` for Claude, `mcp --codex` for Codex); the Codex launcher
+selects it automatically. Claude's existing package path and commands are retained
+for compatibility. Protocol and Hub changes are shared, while host-specific
+lifecycle and notification behavior stays in the bridge adapter/package layers.
 
 ## Deploy the hub (once, you)
 

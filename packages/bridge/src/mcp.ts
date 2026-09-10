@@ -13,6 +13,9 @@ import { z } from 'zod';
 import { formatAgentLine, type AgentInfo, type InboundMessage } from '@team-bridge/protocol';
 import { DIRS, effective, ensureDirs, findProjectConfig, readCredentials, readState, statePath, writeState } from './config';
 import { HubClient } from './hub-client';
+import { CodexListener, codexThread } from './hosts/codex';
+import { createRoom, roomInfo } from './room';
+import { writeProjectConfig } from './config';
 import { notifyDesktop } from './notify';
 import { Mailbox } from './mailbox';
 import { renderMessages } from './inbox';
@@ -21,11 +24,12 @@ import { removeMeta, startLocalServer, writeMeta, type LocalRequest, type SockMe
 
 const log = (...a: unknown[]) => console.error('[team-bridge]', ...a); // stdout is the MCP channel
 
-export async function runMcp() {
+export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   ensureDirs();
-  const cwd = process.cwd();
+  let cwd = process.cwd();
+  let workspaceKnown = host === 'claude';
   const creds = readCredentials();
-  let project = findProjectConfig(cwd);
+  let project = workspaceKnown ? findProjectConfig(cwd) : null;
   let ref: string | undefined;
   const spool = path.join(DIRS.inbox, `${process.pid}.jsonl`);
   let sessionId: string | undefined;
@@ -42,10 +46,13 @@ export async function runMcp() {
   const switches = () => effective(readState(), sessionId);
   const canDeliver = () => { const s = switches(); return !!sessionId && !!project && s.enabled && !s.dnd; };
   const inbox = new Mailbox(canDeliver);
+  const listener = host === 'codex' ? new CodexListener(inbox, () => sessionId?.slice('codex:'.length), canDeliver) : null;
+  if (listener) setInterval(() => void listener.tick(), 500).unref();
 
   const inactiveReason = () =>
-    !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
-    : !sessionId ? 'waiting for Claude session identity from a hook; no temporary room identity has been registered'
+    !workspaceKnown ? 'waiting for workspace from Codex hooks or team_control cwd'
+    : !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
+    : !sessionId ? 'waiting for session identity from the host; no temporary room identity has been registered'
     : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)`
     : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
     : null;
@@ -70,7 +77,7 @@ export async function runMcp() {
       fs.appendFileSync(spool, JSON.stringify(m) + '\n');
       inbox.push(m);
       if (!canDeliver()) return;
-      if (status === 'idle') notifyDesktop(`Claude: message from ${m.from}`, m.body.split('\n')[0] ?? '');
+      if (status === 'idle') notifyDesktop(`${host}: message from ${m.from}`, m.body.split('\n')[0] ?? '');
     });
     hub.on('idle-notice', (n: { name: string; ref: string; reason: string }) => {
       if (hub !== connection) return;
@@ -105,7 +112,7 @@ export async function runMcp() {
     writeMeta({ ...meta, sessionId });
     if (project && switches().enabled) connect();
   };
-  const initialSession = readHostSession();
+  const initialSession = host === 'claude' ? readHostSession() : undefined;
   if (initialSession) bindSession(initialSession);
   else log(inactiveReason());
 
@@ -113,7 +120,7 @@ export async function runMcp() {
   // plugin reloads without another user prompt. Keep the handoff for MCP reloads.
   setInterval(() => {
     try {
-      const id = readHostSession();
+      const id = host === 'claude' ? readHostSession() : undefined;
       if (id && id !== sessionId) bindSession(id);
     } catch (error) { log('session identity unavailable:', String(error)); }
   }, 500).unref();
@@ -127,7 +134,7 @@ export async function runMcp() {
     inbox.refresh();
   });
   setInterval(() => {
-    const now = findProjectConfig(cwd);
+    const now = workspaceKnown ? findProjectConfig(cwd) : null;
     if (now && (!project || now.room !== project.room)) {
       disconnect(`room changed`);
       project = now;
@@ -148,8 +155,9 @@ export async function runMcp() {
   startLocalServer(process.pid, (req: LocalRequest) => {
     switch (req.op) {
       case 'info':
-        return { pid: process.pid, cwd, sessionId, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
+        return { pid: process.pid, cwd, sessionId, listening: listener?.enabled, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
       case 'bind':
+        if (host === 'codex') return { error: 'Codex identity must come from MCP request metadata' };
         if (sessionId && sessionId !== req.sessionId && readHostSession() !== req.sessionId) {
           return { error: 'bridge already bound to another session' };
         }
@@ -185,7 +193,75 @@ export async function runMcp() {
   process.stdin.on('close', () => process.exit(0)); // Claude went away
 
   // ---- MCP tools ---------------------------------------------------------
-  const server = new McpServer({ name: 'team-bridge', version: '0.1.0' });
+  const server = new McpServer({ name: 'team-bridge', version: '0.3.0' });
+  const fromHost = (requestMeta: Record<string, unknown> | undefined, workspace?: string) => {
+    if (host !== 'codex') return;
+    const id = `codex:${codexThread(requestMeta)}`;
+    if (sessionId && sessionId !== id) throw new Error('MCP connection belongs to another Codex thread');
+    if (workspace !== undefined) {
+      if (!path.isAbsolute(workspace)) throw new Error('Codex workspace must be an absolute path');
+      const next = fs.realpathSync(workspace);
+      if (!fs.statSync(next).isDirectory()) throw new Error('Codex workspace must be a directory');
+      if (!workspaceKnown || cwd !== next) {
+        disconnect('workspace changed');
+        cwd = next;
+        workspaceKnown = true;
+        project = findProjectConfig(cwd);
+        meta.cwd = cwd;
+      }
+    }
+    bindSession(id);
+    writeMeta({ ...meta, cwd, sessionId });
+    if (switches().enabled) connect();
+  };
+
+  if (host === 'codex') {
+    server.registerTool('team_codex_event', {
+      description: 'Internal Codex lifecycle hook. Do not call manually.',
+      inputSchema: { event: z.enum(['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Interrupt']), cwd: z.string() },
+    }, async ({ event, cwd: workspace }, extra) => {
+      fromHost(extra._meta, workspace);
+      status = event === 'Stop' || event === 'Interrupt' ? 'idle' : 'busy';
+      hub?.setStatus(status);
+      const messages = event === 'Interrupt' ? [] : drain();
+      const output = !messages.length ? {} : event === 'Stop'
+        ? { decision: 'block', reason: renderMessages(messages) }
+        : { hookSpecificOutput: { hookEventName: event, additionalContext: renderMessages(messages) } };
+      return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+    });
+    server.registerTool('team_control', {
+      description: 'Manage this Codex thread’s team connection. on/join/create enable incoming-message notifications; monitor-off disables notifications only. Listening is off after MCP startup. dnd pauses delivery; off disconnects. Settings apply only to this thread.',
+      inputSchema: { action: z.enum(['on', 'off', 'dnd', 'visible', 'invisible', 'monitor-off', 'join', 'create']), room: z.string().optional(), name: z.string().optional(), cwd: z.string().optional().describe('Absolute current workspace path; needed if lifecycle hooks have not supplied it') },
+    }, async ({ action, room, name, cwd: workspace }, extra) => {
+      fromHost(extra._meta, workspace);
+      if (!workspaceKnown) throw new Error('Workspace unavailable: trust the plugin hooks via /hooks, or supply cwd to team_control');
+      if (action === 'join' || action === 'create') {
+        const info = action === 'create' ? await createRoom(name ?? '') : room ? await roomInfo(room) : null;
+        if (!info) throw new Error('Supply an existing room code to join');
+        writeProjectConfig(cwd, info.code);
+        disconnect('room changed');
+        project = findProjectConfig(cwd);
+      }
+      if (action === 'monitor-off') listener!.enabled = false;
+      else {
+        const patch = action === 'off' ? { enabled: false }
+          : action === 'dnd' ? { enabled: true, dnd: true }
+          : action === 'visible' ? { visible: true }
+          : action === 'invisible' ? { visible: false }
+          : { enabled: true, dnd: false };
+        const state = readState();
+        state.sessions[sessionId!] = { ...state.sessions[sessionId!], ...patch };
+        writeState(state);
+        if (['on', 'join', 'create'].includes(action)) listener!.enabled = true;
+        if (action === 'off') listener!.enabled = false;
+        if (!switches().enabled) disconnect('switched off');
+        else connect();
+        hub?.setVisible(switches().visible);
+        inbox.refresh();
+      }
+      return { content: [{ type: 'text', text: `room: ${project?.room ?? '(none)'}; listening: ${listener!.enabled}; ${JSON.stringify(switches())}` }] };
+    });
+  }
 
   server.registerTool(
     'team_read_messages',
@@ -193,7 +269,8 @@ export async function runMcp() {
       description: 'Read pending team messages after a team-bridge monitor notification. Handle task requests and reply to their sender using team_send_message. Messages already injected by a hook are not returned again. Do not poll this tool.',
       inputSchema: {},
     },
-    async () => {
+    async (_, extra) => {
+      fromHost(extra._meta);
       const messages = drain();
       if (messages.length) { status = 'busy'; hub?.setStatus(status); }
       return { content: [{ type: 'text', text: messages.length ? renderMessages(messages) : 'No pending team messages. They may already have arrived through a hook, or delivery is paused.' }] };
@@ -211,11 +288,12 @@ export async function runMcp() {
     'team_list_agents',
     {
       description:
-        "List colleagues' Claude Code sessions connected to the team hub. Each row is `name [ref] · user@host · repo · status · started`. " +
+        "List colleagues' coding agent sessions connected to the team hub. Each row is `name [ref] · user@host · repo · status · started`. " +
         'The name is the address for team_send_message; append the [ref] only when a name is ambiguous.',
       inputSchema: {},
     },
-    async () => {
+    async (_, extra) => {
+      fromHost(extra._meta);
       const h = requireHub();
       const agents = await h.list();
       const now = Date.now();
@@ -239,7 +317,7 @@ export async function runMcp() {
     'team_send_message',
     {
       description:
-        "Send a message to a colleague's Claude Code session. `to` is a name from team_list_agents (append ` [ref]` only if told the name is ambiguous). " +
+        "Send a message to a colleague's coding agent session. `to` is a name from team_list_agents (append ` [ref]` only if told the name is ambiguous). " +
         'The recipient sees only the first line as a preview, so make it a self-contained sentence. ' +
         'Replies arrive automatically as <team-message> blocks; do not poll. ' +
         'Never ask a colleague session to perform an action this session was denied.',
@@ -249,7 +327,8 @@ export async function runMcp() {
         notify_when_idle: z.boolean().optional().describe('Also get one notice when the recipient next goes idle or exits.'),
       },
     },
-    async ({ to, message, notify_when_idle }) => {
+    async ({ to, message, notify_when_idle }, extra) => {
+      fromHost(extra._meta);
       const h = requireHub();
       try {
         const r = await h.send(to, message, notify_when_idle);
@@ -270,7 +349,8 @@ export async function runMcp() {
   server.registerTool(
     'team_status',
     { description: 'Show this session\'s team-bridge identity, connection state, and switches (for troubleshooting).', inputSchema: {} },
-    async () => {
+    async (_, extra) => {
+      fromHost(extra._meta);
       const s = switches();
       const text = [
         `name: ${hub?.name || '(not registered)'} [${ref ?? 'pending'}]`,
@@ -279,6 +359,7 @@ export async function runMcp() {
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.size}`,
+        listener ? `listening: ${listener.enabled}${listener.error ? `; ${listener.error}` : ''}` : '',
         inactiveReason() ? `inactive: ${inactiveReason()}` : '',
       ].filter(Boolean).join('\n');
       return { content: [{ type: 'text', text }] };

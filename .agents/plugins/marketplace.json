@@ -1,0 +1,20 @@
+{
+  "name": "team-bridge-marketplace",
+  "interface": {
+    "displayName": "Team Bridge Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "team-bridge",
+      "source": {
+        "source": "local",
+        "path": "./plugins/team-bridge"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

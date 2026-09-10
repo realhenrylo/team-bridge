@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "team": {
+      "command": "./scripts/mcp",
+      "env_vars": [
+        "CODEX_HOME",
+        "TEAM_BRIDGE_HUB",
+        "TEAM_BRIDGE_HOME"
+      ],
+      "args": [],
+      "cwd": "."
+    }
+  }
+}
