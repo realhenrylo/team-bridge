@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -17,6 +18,7 @@ export const DIRS = {
   sock: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`),
   inbox: path.join(HOME, 'inbox'),
   sessions: path.join(HOME, 'sessions'),
+  projects: path.join(HOME, 'projects'),
   bindings: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`, 'bindings'),
 };
 
@@ -101,21 +103,48 @@ export function effective(state: State, sessionId: string | undefined) {
   };
 }
 
-// ---- project opt-in: .team-bridge.json at repo root ----------------------
+// ---- project room bindings: private plugin data, keyed by canonical path ----
 
-export const PROJECT_FILE = '.team-bridge.json';
+const LEGACY_PROJECT_FILE = '.team-bridge.json';
 
 export interface ProjectConfig {
-  room: string; // e.g. "NEX7-K2QM"
+  room: string;
   root: string;
 }
 
+function canonicalProject(dir: string) {
+  try { return fs.realpathSync(dir); } catch { return path.resolve(dir); }
+}
+
+export function projectConfigPath(dir: string) {
+  const key = createHash('sha256').update(canonicalProject(dir)).digest('hex');
+  return path.join(DIRS.projects, `${key}.json`);
+}
+
+function saveProject(dir: string, room: string | null) {
+  ensureDirs();
+  const root = canonicalProject(dir);
+  const file = projectConfigPath(root);
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ root, room }, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch { /* already renamed */ }
+  }
+}
+
 export function findProjectConfig(cwd: string): ProjectConfig | null {
-  let dir = path.resolve(cwd);
+  let dir = canonicalProject(cwd);
   for (;;) {
-    const p = path.join(dir, PROJECT_FILE);
-    const cfg = readJson<{ room?: string }>(p);
-    if (cfg?.room) return { room: cfg.room, root: dir };
+    const cfg = readJson<{ room?: string | null }>(projectConfigPath(dir));
+    if (cfg?.room === null) return null; // Explicit leave also blocks legacy re-import.
+    if (typeof cfg?.room === 'string' && cfg.room) return { room: cfg.room, root: dir };
+    const legacy = readJson<{ room?: string }>(path.join(dir, LEGACY_PROJECT_FILE));
+    if (typeof legacy?.room === 'string' && legacy.room) {
+      saveProject(dir, legacy.room);
+      return { room: legacy.room, root: dir };
+    }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -123,7 +152,11 @@ export function findProjectConfig(cwd: string): ProjectConfig | null {
 }
 
 export function writeProjectConfig(dir: string, room: string) {
-  fs.writeFileSync(path.join(dir, PROJECT_FILE), JSON.stringify({ room }, null, 2) + '\n');
+  saveProject(dir, room);
+}
+
+export function leaveProjectConfig(dir: string) {
+  saveProject(dir, null);
 }
 
 export function readJson<T>(p: string): T | null {

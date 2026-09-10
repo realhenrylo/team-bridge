@@ -43,6 +43,11 @@ bridge received the message, not that the task completed.
 
 ## Identity and storage
 
+Project room bindings are saved in `<plugin-data>/projects/<path-hash>.json`,
+keyed by the canonical project path. Create/join never write into the project.
+Claude and Codex keep their own bindings; join the same room once in each host.
+
+
 The MCP request's host-supplied `_meta.threadId` selects the identity. It is not
 accepted as a model-controlled tool argument. Saved identity keys are prefixed
 with `codex:` so Claude and Codex conversations cannot share an identity by ID

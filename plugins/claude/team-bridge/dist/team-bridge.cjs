@@ -3263,8 +3263,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path6) {
-      let input = path6;
+    function removeDotSegments(path5) {
+      let input = path5;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3673,8 +3673,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path6 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
+        const path5 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7186,12 +7186,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs7, exportName) {
+    function addFormats(ajv, list, fs6, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs7[f]);
+        ajv.addFormat(f, fs6[f]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -9438,7 +9438,7 @@ var require_websocket = __commonJS({
     var http2 = require("http");
     var net2 = require("net");
     var tls = require("tls");
-    var { randomBytes, createHash } = require("crypto");
+    var { randomBytes, createHash: createHash2 } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL: URL2 } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -10106,7 +10106,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -10475,7 +10475,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter2 = require("events");
     var http2 = require("http");
     var { Duplex } = require("stream");
-    var { createHash } = require("crypto");
+    var { createHash: createHash2 } = require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -10782,7 +10782,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -12149,6 +12149,7 @@ var import_node_fs4 = __toESM(require("fs"), 1);
 
 // src/config.ts
 var import_node_fs = __toESM(require("fs"), 1);
+var import_node_crypto = require("crypto");
 var import_node_os = __toESM(require("os"), 1);
 var import_node_path = __toESM(require("path"), 1);
 var HOME = process.env.TEAM_BRIDGE_HOME ?? process.env.CLAUDE_PLUGIN_DATA ?? import_node_path.default.join(import_node_os.default.homedir(), ".team-bridge");
@@ -12157,6 +12158,7 @@ var DIRS = {
   sock: import_node_path.default.join(import_node_os.default.tmpdir(), `team-bridge-${import_node_os.default.userInfo().uid}`),
   inbox: import_node_path.default.join(HOME, "inbox"),
   sessions: import_node_path.default.join(HOME, "sessions"),
+  projects: import_node_path.default.join(HOME, "projects"),
   bindings: import_node_path.default.join(import_node_os.default.tmpdir(), `team-bridge-${import_node_os.default.userInfo().uid}`, "bindings")
 };
 function ensureDirs() {
@@ -12200,20 +12202,54 @@ function effective(state, sessionId) {
     acceptFrom: state.acceptFrom
   };
 }
-var PROJECT_FILE = ".team-bridge.json";
+var LEGACY_PROJECT_FILE = ".team-bridge.json";
+function canonicalProject(dir) {
+  try {
+    return import_node_fs.default.realpathSync(dir);
+  } catch {
+    return import_node_path.default.resolve(dir);
+  }
+}
+function projectConfigPath(dir) {
+  const key = (0, import_node_crypto.createHash)("sha256").update(canonicalProject(dir)).digest("hex");
+  return import_node_path.default.join(DIRS.projects, `${key}.json`);
+}
+function saveProject(dir, room) {
+  ensureDirs();
+  const root = canonicalProject(dir);
+  const file = projectConfigPath(root);
+  const tmp = `${file}.${(0, import_node_crypto.randomUUID)()}.tmp`;
+  try {
+    import_node_fs.default.writeFileSync(tmp, JSON.stringify({ root, room }, null, 2) + "\n", { mode: 384 });
+    import_node_fs.default.renameSync(tmp, file);
+  } finally {
+    try {
+      import_node_fs.default.unlinkSync(tmp);
+    } catch {
+    }
+  }
+}
 function findProjectConfig(cwd) {
-  let dir = import_node_path.default.resolve(cwd);
+  let dir = canonicalProject(cwd);
   for (; ; ) {
-    const p = import_node_path.default.join(dir, PROJECT_FILE);
-    const cfg = readJson(p);
-    if (cfg?.room) return { room: cfg.room, root: dir };
+    const cfg = readJson(projectConfigPath(dir));
+    if (cfg?.room === null) return null;
+    if (typeof cfg?.room === "string" && cfg.room) return { room: cfg.room, root: dir };
+    const legacy = readJson(import_node_path.default.join(dir, LEGACY_PROJECT_FILE));
+    if (typeof legacy?.room === "string" && legacy.room) {
+      saveProject(dir, legacy.room);
+      return { room: legacy.room, root: dir };
+    }
     const parent = import_node_path.default.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
 }
 function writeProjectConfig(dir, room) {
-  import_node_fs.default.writeFileSync(import_node_path.default.join(dir, PROJECT_FILE), JSON.stringify({ room }, null, 2) + "\n");
+  saveProject(dir, room);
+}
+function leaveProjectConfig(dir) {
+  saveProject(dir, null);
 }
 function readJson(p) {
   try {
@@ -12381,11 +12417,11 @@ function localRequest(sock, req, timeoutMs = 1500) {
 }
 
 // src/identity.ts
-var import_node_crypto = __toESM(require("crypto"), 1);
+var import_node_crypto2 = __toESM(require("crypto"), 1);
 var import_node_fs3 = __toESM(require("fs"), 1);
 var import_node_path3 = __toESM(require("path"), 1);
 var import_node_child_process2 = require("child_process");
-var hash = (text) => import_node_crypto.default.createHash("sha256").update(text).digest("hex");
+var hash = (text) => import_node_crypto2.default.createHash("sha256").update(text).digest("hex");
 function hostKey() {
   try {
     const rows = (0, import_node_child_process2.execFileSync)("ps", ["-A", "-o", "pid=,ppid=,lstart=,comm="], {
@@ -12458,8 +12494,8 @@ function sessionRef(sessionId) {
     return record2.ref;
   };
   if (import_node_fs3.default.existsSync(file)) return existing();
-  const ref = import_node_crypto.default.randomBytes(3).toString("hex");
-  const tmp = `${file}.${process.pid}.${import_node_crypto.default.randomBytes(4).toString("hex")}.tmp`;
+  const ref = import_node_crypto2.default.randomBytes(3).toString("hex");
+  const tmp = `${file}.${process.pid}.${import_node_crypto2.default.randomBytes(4).toString("hex")}.tmp`;
   try {
     import_node_fs3.default.writeFileSync(tmp, JSON.stringify({ sessionId, ref }) + "\n", { mode: 384 });
     try {
@@ -12563,7 +12599,7 @@ function runConfigure(args) {
 }
 
 // src/mcp.ts
-var import_node_crypto2 = __toESM(require("crypto"), 1);
+var import_node_crypto3 = __toESM(require("crypto"), 1);
 var import_node_fs5 = __toESM(require("fs"), 1);
 var import_node_os3 = __toESM(require("os"), 1);
 var import_node_path4 = __toESM(require("path"), 1);
@@ -13046,8 +13082,8 @@ function getErrorMap() {
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path6, errorMaps, issueData } = params;
-  const fullPath = [...path6, ...issueData.path || []];
+  const { data, path: path5, errorMaps, issueData } = params;
+  const fullPath = [...path5, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -13163,11 +13199,11 @@ var errorUtil;
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path6, key) {
+  constructor(parent, value, path5, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path6;
+    this._path = path5;
     this._key = key;
   }
   get path() {
@@ -16804,10 +16840,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path6) {
-  if (!path6)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path6.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -17127,11 +17163,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path6, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path6);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -20542,11 +20578,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path6) {
-  if (path6.length === 0) {
+function getDotPath(path5) {
+  if (path5.length === 0) {
     return "object root";
   }
-  return path6.reduce((acc, seg, index) => {
+  return path5.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -27305,7 +27341,7 @@ async function runMcp(host = "claude") {
   const inbox = new Mailbox(canDeliver);
   const listener = host === "codex" ? new CodexListener(inbox, () => sessionId?.slice("codex:".length), canDeliver) : null;
   if (listener) setInterval(() => void listener.tick(), 500).unref();
-  const inactiveReason = () => !workspaceKnown ? "waiting for workspace from Codex hooks or team_control cwd" : !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : !sessionId ? "waiting for session identity from the host; no temporary room identity has been registered" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
+  const inactiveReason = () => !workspaceKnown ? "waiting for workspace from Codex hooks or team_control cwd" : !project ? "this project has no saved room binding, so it is not in any room (/team join <code>)" : !sessionId ? "waiting for session identity from the host; no temporary room identity has been registered" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
   const connect = () => {
     if (!project || !ref || !sessionId || hub) return;
     const room = project.room;
@@ -27334,7 +27370,7 @@ async function runMcp(host = "claude") {
     hub.on("idle-notice", (n) => {
       if (hub !== connection) return;
       const m = {
-        id: import_node_crypto2.default.randomUUID(),
+        id: import_node_crypto3.default.randomUUID(),
         from: n.name,
         fromRef: n.ref,
         at: Date.now(),
@@ -27583,7 +27619,7 @@ async function runMcp(host = "claude") {
       const text = [
         `name: ${hub?.name || "(not registered)"} [${ref ?? "pending"}]`,
         `session: ${sessionId ?? "(waiting for hook)"}`,
-        `hub: ${creds.hub}  room: ${project?.room ?? "(no .team-bridge.json)"}`,
+        `hub: ${creds.hub}  room: ${project?.room ?? "(no room binding)"}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.size}`,
@@ -27640,8 +27676,6 @@ async function runMonitor() {
 }
 
 // src/team.ts
-var import_node_fs6 = __toESM(require("fs"), 1);
-var import_node_path5 = __toESM(require("path"), 1);
 async function runTeam(args) {
   const global = args.includes("--global");
   const positional = args.filter((a) => !a.startsWith("--"));
@@ -27651,7 +27685,7 @@ async function runTeam(args) {
     const i = args.indexOf("--name");
     const r2 = await createRoom(i >= 0 ? args[i + 1] ?? "" : "");
     writeProjectConfig(cwd, r2.code);
-    console.log(`room created: ${r2.code}${r2.name ? ` (${r2.name})` : ""}; this directory joined it (${import_node_path5.default.join(cwd, PROJECT_FILE)}).`);
+    console.log(`room created: ${r2.code}${r2.name ? ` (${r2.name})` : ""}; this project joined it.`);
     console.log(`share the code \u2014 colleagues run \`/team join ${r2.code}\` in their repo. This session connects within a few seconds.`);
     return;
   }
@@ -27669,7 +27703,7 @@ async function runTeam(args) {
       return;
     }
     writeProjectConfig(cwd, info.code);
-    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; wrote ${import_node_path5.default.join(cwd, PROJECT_FILE)}. This session connects within a few seconds \u2014 no restart needed.`);
+    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; project binding saved. This session connects within a few seconds \u2014 no restart needed.`);
     return;
   }
   if (cmd2 === "leave") {
@@ -27678,8 +27712,8 @@ async function runTeam(args) {
       console.log("this directory is not in a room");
       return;
     }
-    import_node_fs6.default.unlinkSync(import_node_path5.default.join(cfg.root, PROJECT_FILE));
-    console.log(`left room ${cfg.room}; removed ${import_node_path5.default.join(cfg.root, PROJECT_FILE)}`);
+    leaveProjectConfig(cfg.root);
+    console.log(`left room ${cfg.room}; cleared the project binding in plugin data`);
     return;
   }
   const patch = cmd2 === "on" ? { enabled: true, dnd: false } : cmd2 === "off" ? { enabled: false } : cmd2 === "dnd" ? { enabled: true, dnd: true } : cmd2 === "visible" ? { visible: true } : cmd2 === "invisible" ? { visible: false } : null;

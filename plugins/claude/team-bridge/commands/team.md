@@ -14,7 +14,7 @@ The first invocation of this skill starts this session's team inbox monitor. It 
 
 Meaning:
 - `create [--name x]` — open a new room on the hub and join this repo to it; share the printed code
-- `join <code>` — put this repo in an existing room (writes `.team-bridge.json`; connects within seconds)
+- `join <code>` — put this repo in an existing room (saves the project binding in plugin data; connects within seconds)
 - `leave` — remove this repo from its room
 - `on` — connected, messages are injected into this conversation
 - `dnd` — still listed and still receiving, but nothing is injected until `on`

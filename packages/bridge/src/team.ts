@@ -3,9 +3,7 @@
  * Backs the /team slash command. Without --global it targets this Claude
  * session's bridge; with --global it edits the top-level default state.
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { findProjectConfig, PROJECT_FILE, readState, writeProjectConfig, writeState } from './config';
+import { findProjectConfig, leaveProjectConfig, readState, writeProjectConfig, writeState } from './config';
 import { findSessionBridge, listMeta, localRequest } from './local';
 import { createRoom, roomInfo } from './room';
 
@@ -19,7 +17,7 @@ export async function runTeam(args: string[]) {
     const i = args.indexOf('--name');
     const r = await createRoom(i >= 0 ? args[i + 1] ?? '' : '');
     writeProjectConfig(cwd, r.code);
-    console.log(`room created: ${r.code}${r.name ? ` (${r.name})` : ''}; this directory joined it (${path.join(cwd, PROJECT_FILE)}).`);
+    console.log(`room created: ${r.code}${r.name ? ` (${r.name})` : ''}; this project joined it.`);
     console.log(`share the code — colleagues run \`/team join ${r.code}\` in their repo. This session connects within a few seconds.`);
     return;
   }
@@ -29,14 +27,14 @@ export async function runTeam(args: string[]) {
     const info = await roomInfo(code);
     if (!info) { console.error(`room ${code} does not exist or has expired`); process.exitCode = 1; return; }
     writeProjectConfig(cwd, info.code);
-    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ''}; wrote ${path.join(cwd, PROJECT_FILE)}. This session connects within a few seconds — no restart needed.`);
+    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ''}; project binding saved. This session connects within a few seconds — no restart needed.`);
     return;
   }
   if (cmd === 'leave') {
     const cfg = findProjectConfig(cwd);
     if (!cfg) { console.log('this directory is not in a room'); return; }
-    fs.unlinkSync(path.join(cfg.root, PROJECT_FILE));
-    console.log(`left room ${cfg.room}; removed ${path.join(cfg.root, PROJECT_FILE)}`);
+    leaveProjectConfig(cfg.root);
+    console.log(`left room ${cfg.room}; cleared the project binding in plugin data`);
     return;
   }
 

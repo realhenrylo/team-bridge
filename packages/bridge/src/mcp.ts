@@ -51,14 +51,14 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
 
   const inactiveReason = () =>
     !workspaceKnown ? 'waiting for workspace from Codex hooks or team_control cwd'
-    : !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
+    : !project ? 'this project has no saved room binding, so it is not in any room (/team join <code>)'
     : !sessionId ? 'waiting for session identity from the host; no temporary room identity has been registered'
     : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)`
     : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
     : null;
 
   // ---- hub connection ----------------------------------------------------
-  // `/team join` / `/team create` write .team-bridge.json while this process
+  // `/team join` / `/team create` save the project binding in plugin data while this process
   // is already running, so watch for it instead of demanding a restart; and
   // drop the connection if `/team leave` removes it.
   const connect = () => {
@@ -355,7 +355,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
       const text = [
         `name: ${hub?.name || '(not registered)'} [${ref ?? 'pending'}]`,
         `session: ${sessionId ?? '(waiting for hook)'}`,
-        `hub: ${creds.hub}  room: ${project?.room ?? '(no .team-bridge.json)'}`,
+        `hub: ${creds.hub}  room: ${project?.room ?? '(no room binding)'}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.size}`,

@@ -134,12 +134,17 @@ For the interactive acceptance check, start two Claude Code sessions with the lo
 | `state.json` (switches), `credentials.json` (fallback), inbox spool | `${CLAUDE_PLUGIN_DATA}` = `~/.claude/plugins/data/<plugin-id>/` — survives updates, removed on uninstall |
 | user name, create token | plugin `userConfig` → `~/.claude/settings.json` / Keychain, exported as `CLAUDE_PLUGIN_OPTION_*`; hub URL is built in (`DEFAULT_HUB`, override `TEAM_BRIDGE_HUB`) |
 | unix sockets + meta | `os.tmpdir()/team-bridge-<uid>/` (short paths; per-process, ephemeral) |
-| `.team-bridge.json` (room code) | repo root, committed or not as the team prefers |
+| Project → room bindings | `<plugin-data>/projects/<path-hash>.json`, keyed by the canonical project path |
 | the bundled CLI | `${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs` — read-only, replaced on update |
+
+Existing `.team-bridge.json` files are imported into plugin data on first use.
+The plugin leaves those files untouched; after migration they can be deleted.
+`leave` prevents the old file from rejoining the room. Claude and Codex keep
+separate project bindings; join the same room once in each host.
 
 ## Switches
 
-`/team on | off | dnd | visible | invisible | status [--global]` — stored in `~/.team-bridge/state.json` (global) with per-session overrides. `/team create` / `/team join <code>` / `/team leave` manage the repo's `.team-bridge.json`.
+`/team on | off | dnd | visible | invisible | status [--global]` — stored in `~/.team-bridge/state.json` (global) with per-session overrides. `/team create` / `/team join <code>` / `/team leave` manage the project binding in the plugin data directory.
 
 ## Room lifecycle
 
