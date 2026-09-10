@@ -16,6 +16,7 @@ import { HubClient } from './hub-client';
 import { notifyDesktop } from './notify';
 import { Mailbox } from './mailbox';
 import { renderMessages } from './inbox';
+import { readHostSession, sessionRef } from './identity';
 import { removeMeta, startLocalServer, writeMeta, type LocalRequest, type SockMeta } from './local';
 
 const log = (...a: unknown[]) => console.error('[team-bridge]', ...a); // stdout is the MCP channel
@@ -25,7 +26,7 @@ export async function runMcp() {
   const cwd = process.cwd();
   const creds = readCredentials();
   let project = findProjectConfig(cwd);
-  const ref = crypto.randomBytes(3).toString('hex');
+  let ref: string | undefined;
   const spool = path.join(DIRS.inbox, `${process.pid}.jsonl`);
   let sessionId: string | undefined;
   let status: 'busy' | 'idle' | 'shell' = 'idle';
@@ -39,11 +40,12 @@ export async function runMcp() {
   writeMeta(meta);
 
   const switches = () => effective(readState(), sessionId);
-  const canDeliver = () => { const s = switches(); return !!project && s.enabled && !s.dnd; };
+  const canDeliver = () => { const s = switches(); return !!sessionId && !!project && s.enabled && !s.dnd; };
   const inbox = new Mailbox(canDeliver);
 
   const inactiveReason = () =>
     !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
+    : !sessionId ? 'waiting for Claude session identity from a hook; no temporary room identity has been registered'
     : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)`
     : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
     : null;
@@ -53,7 +55,7 @@ export async function runMcp() {
   // is already running, so watch for it instead of demanding a restart; and
   // drop the connection if `/team leave` removes it.
   const connect = () => {
-    if (!project || hub) return;
+    if (!project || !ref || !sessionId || hub) return;
     const room = project.room;
     hub = new HubClient({
       hub: creds.hub, room, log,
@@ -62,13 +64,16 @@ export async function runMcp() {
         repo: path.basename(project.root), visible: switches().visible, status,
       },
     });
+    const connection = hub;
     hub.on('message', (m: InboundMessage) => {
+      if (hub !== connection) return;
       fs.appendFileSync(spool, JSON.stringify(m) + '\n');
       inbox.push(m);
       if (!canDeliver()) return;
       if (status === 'idle') notifyDesktop(`Claude: message from ${m.from}`, m.body.split('\n')[0] ?? '');
     });
     hub.on('idle-notice', (n: { name: string; ref: string; reason: string }) => {
+      if (hub !== connection) return;
       const m: InboundMessage = {
         id: crypto.randomUUID(), from: n.name, fromRef: n.ref, at: Date.now(),
         body: `[idle notice] ${n.name} [${n.ref}] is now ${n.reason}.`,
@@ -85,8 +90,33 @@ export async function runMcp() {
     log(why);
   };
 
-  if (project && switches().enabled) connect();
+  const bindSession = (id: string) => {
+    if (id === sessionId) return;
+    // Read/create the persistent identity before disturbing the current connection.
+    const nextRef = sessionRef(id);
+    disconnect('session identity changed');
+    if (sessionId) {
+      inbox.clear();
+      fs.writeFileSync(spool, '');
+    }
+    sessionId = id;
+    ref = nextRef;
+    status = 'idle';
+    writeMeta({ ...meta, sessionId });
+    if (project && switches().enabled) connect();
+  };
+  const initialSession = readHostSession();
+  if (initialSession) bindSession(initialSession);
   else log(inactiveReason());
+
+  // SessionStart may run before OR after MCP startup; also covers /clear and
+  // plugin reloads without another user prompt. Keep the handoff for MCP reloads.
+  setInterval(() => {
+    try {
+      const id = readHostSession();
+      if (id && id !== sessionId) bindSession(id);
+    } catch (error) { log('session identity unavailable:', String(error)); }
+  }, 500).unref();
 
   // react to /team edits (state.json) and to the room file appearing/disappearing
   fs.watchFile(statePath(), { interval: 1000 }, () => {
@@ -120,9 +150,10 @@ export async function runMcp() {
       case 'info':
         return { pid: process.pid, cwd, sessionId, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
       case 'bind':
-        if (sessionId && sessionId !== req.sessionId) return { error: 'bridge already bound to another session' };
-        sessionId = req.sessionId;
-        writeMeta({ ...meta, sessionId });
+        if (sessionId && sessionId !== req.sessionId && readHostSession() !== req.sessionId) {
+          return { error: 'bridge already bound to another session' };
+        }
+        bindSession(req.sessionId);
         return { ok: true };
       case 'status':
         status = req.status;
@@ -137,6 +168,7 @@ export async function runMcp() {
       case 'drain':
         return { messages: drain() };
       case 'set': {
+        if (!sessionId) return { error: 'waiting for Claude session identity; use --global to change defaults' };
         const state = readState();
         if (sessionId) state.sessions[sessionId] = { ...state.sessions[sessionId], ...req.patch };
         else Object.assign(state, req.patch);
@@ -241,7 +273,8 @@ export async function runMcp() {
     async () => {
       const s = switches();
       const text = [
-        `name: ${hub?.name || '(not registered)'} [${ref}]`,
+        `name: ${hub?.name || '(not registered)'} [${ref ?? 'pending'}]`,
+        `session: ${sessionId ?? '(waiting for hook)'}`,
         `hub: ${creds.hub}  room: ${project?.room ?? '(no .team-bridge.json)'}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,

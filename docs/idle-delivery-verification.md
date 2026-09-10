@@ -40,8 +40,16 @@
 
 回归测试分别覆盖会话地址和父进程链两种绑定方式：同目录隔离、SessionStart 早于 MCP、启动积压、长轮询、DND 恢复、Hook/工具共享消费、MCP 重启重连，以及旧 Monitor 在插件重载后不会对同一条未读消息循环输出。
 
-本次未实现跨进程重启的未读消息恢复、持久任务回执或 Channels 适配器。Monitor 仍依赖宿主对该功能的支持。部署新版后需重启 Claude 会话，才能替换已运行的 Monitor。
+尚未实现已投递至 MCP 的未读消息跨进程恢复、持久任务回执或 Channels 适配器。Monitor 仍依赖宿主对该功能的支持。部署新版后需重启 Claude 会话，才能替换已运行的 Monitor。
 
 ## 0.2.6 按需启动验收
 
 在同一版本 Claude Code 的真实交互会话验证：进入会话后没有 Monitor；调用 `/team-bridge:team on` 后出现一个 Monitor。触发条件使用完整技能名 `on-skill-invoke:team-bridge:team`，仅写 `team` 无法触发。已有房间中的新会话也需主动调用一次技能来启用空闲唤醒。
+
+## 0.2.7 会话身份验收
+
+身份改为按 Claude `session_id` 持久化到插件数据目录。Hook 在 MCP 启动前后均可交接会话 ID；尚未拿到会话 ID 时不向房间注册临时身份。MCP 重启和退出后 resume 复用同一 ref，新会话及 fork 使用独立身份。从旧版升级会生成一次新身份。
+
+真实 Claude Code 2.1.267 交互测试：会话 `7d99436c-2692-4842-83a4-a68a0d27e599` 首次连接后执行 `/exit`，再以 `claude --resume` 恢复。MCP PID 从 `91181` 变为 `92144`，名字均为 `resume-test-workspace-f39a`，ref 均为 `f39a44`，恢复后自动连接成功。测试使用本地 Cloudflare Hub。
+
+自动回归同时覆盖宿主地址和父进程链路径：MCP 重启、整个宿主退出后恢复、恢复 DND 设置、发给旧 ref 的离线消息、新会话隔离以及 Hook/MCP 两种启动顺序。本地 Hub smoke 额外验证实际 Hub 在重连后保留名字并投递离线消息。

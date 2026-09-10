@@ -17,6 +17,7 @@ export const DIRS = {
   sock: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`),
   inbox: path.join(HOME, 'inbox'),
   sessions: path.join(HOME, 'sessions'),
+  bindings: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`, 'bindings'),
 };
 
 export function ensureDirs() {

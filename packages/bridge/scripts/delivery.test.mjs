@@ -53,11 +53,19 @@ for (const identity of ['messaging-address', 'parent-chain']) {
     const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     await once(wss, 'listening');
     const peers = new Map();
+    const hellos = [];
+    const registered = new Map();
+    const pending = new Map();
     wss.on('connection', (ws) => ws.on('message', (raw) => {
       const m = JSON.parse(raw.toString());
       if (m.type === 'hello') {
+        hellos.push(m);
         peers.set(m.user, ws);
-        ws.send(JSON.stringify({ type: 'welcome', name: m.user, resumed: false, pending: [] }));
+        const resumed = registered.has(m.ref);
+        const name = registered.get(m.ref) ?? `${m.user}-${m.ref}`;
+        registered.set(m.ref, name);
+        ws.send(JSON.stringify({ type: 'welcome', name, ref: m.ref, resumed, pending: pending.get(m.ref) ?? [] }));
+        pending.delete(m.ref);
       }
     }));
     let sequence = 0;
@@ -76,15 +84,20 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       ...env, TEST_SESSION_ID: `${path.basename(root)}-${name}`, CLAUDE_PLUGIN_OPTION_USER: name,
       ...(identity === 'messaging-address' ? { CLAUDE_CODE_MESSAGING_SOCKET: `${root}/${name}.sock` } : {}),
     });
-    const a = host(cwd, sessionEnv('a'));
+    let a = host(cwd, sessionEnv('a'));
     const b = host(cwd, sessionEnv('b'));
     try {
       // SessionStart before MCP exists; a later hook must bind the correct process.
       assert.equal(await a.call('hook', { event: 'SessionStart' }), '');
       await a.call('start'); await b.call('start');
+      assert.match(await b.tool('team_status'), /waiting for hook/);
+      assert.ok(!hellos.some((hello) => hello.user === 'b'), 'no transient identity before the first hook');
+      await b.call('hook', { event: 'UserPromptSubmit' });
       await until(() => peers.has('a') && peers.has('b'), 'bridges connected');
       await a.call('hook', { event: 'UserPromptSubmit' });
-      await b.call('hook', { event: 'UserPromptSubmit' });
+      const originalRef = hellos.find((hello) => hello.user === 'a').ref;
+      const originalName = registered.get(originalRef);
+      assert.notEqual(originalRef, hellos.find((hello) => hello.user === 'b').ref);
 
       send('a', 'arrived-before-monitor\ncomplete body');
       await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'message queued');
@@ -119,6 +132,7 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       peers.delete('a');
       await a.call('restart');
       await until(() => peers.has('a'), 'replacement bridge connected');
+      assert.equal(hellos.filter((hello) => hello.user === 'a').at(-1).ref, originalRef, 'MCP reload keeps ref without another hook');
       await a.call('hook', { event: 'UserPromptSubmit' });
       send('a', 'after-restart');
       await until(() => a.state.output.includes('after-restart'), 'monitor reattached');
@@ -128,6 +142,36 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       for (const message of ['arrived-before-monitor', 'during-dnd', 'after-restart']) {
         assert.equal(a.state.output.split(message).length - 1, 1, `exactly one notification: ${message}`);
       }
+
+      // Exit the entire host, then resume the SAME conversation under a new
+      // host PID/socket. A message addressed to the old ref must come back.
+      await a.call('switch', { command: 'dnd' });
+      await a.call('hook', { event: 'SessionEnd' });
+      await a.close();
+      pending.set(originalRef, [{ id: 'offline-message', from: 'sender', fromRef: 'abc123', body: 'queued-for-old-ref', at: Date.now() }]);
+      peers.delete('a');
+      const resumedEnv = { ...sessionEnv('a') };
+      if (identity === 'messaging-address') resumedEnv.CLAUDE_CODE_MESSAGING_SOCKET = `${root}/a-resumed.sock`;
+      a = host(cwd, resumedEnv);
+      await a.call('hook', { event: 'SessionStart' });
+      await a.call('start');
+      await until(() => peers.has('a'), 'resumed conversation connected');
+      assert.equal(hellos.filter((hello) => hello.user === 'a').at(-1).ref, originalRef);
+      await until(async () => (await a.tool('team_status')).includes(`name: ${originalName}`), 'same name after resume');
+      assert.match(await a.tool('team_status'), /dnd: true/, 'per-session switches restored before reconnect');
+      assert.match(await a.tool('team_read_messages'), /No pending/);
+      await a.call('switch', { command: 'on' });
+      assert.match(await a.tool('team_read_messages'), /queued-for-old-ref/);
+
+      // /clear or changing the active conversation in the same host uses a
+      // distinct identity and never inherits the previous conversation's mail.
+      send('a', 'belongs-to-old-conversation');
+      await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'old conversation inbox');
+      const count = hellos.length;
+      await a.call('hook', { event: 'SessionStart', input: { session_id: `${path.basename(root)}-fork` } });
+      await until(() => hellos.length > count, 'new conversation registered');
+      assert.notEqual(hellos.at(-1).ref, originalRef);
+      assert.match(await a.tool('team_read_messages'), /No pending/);
     } finally {
       await Promise.all([a.close(), b.close()]);
       for (const ws of wss.clients) ws.terminate();

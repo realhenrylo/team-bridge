@@ -1062,10 +1062,10 @@ var require_util = __commonJS({
     var codegen_1 = require_codegen();
     var code_1 = require_code();
     function toHash(arr) {
-      const hash = {};
+      const hash2 = {};
       for (const item of arr)
-        hash[item] = true;
-      return hash;
+        hash2[item] = true;
+      return hash2;
     }
     exports2.toHash = toHash;
     function alwaysValidSchema(it, schema) {
@@ -3263,8 +3263,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path6) {
+      let input = path6;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3673,8 +3673,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path5 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const path6 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7186,12 +7186,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs6, exportName) {
+    function addFormats(ajv, list, fs7, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs6[f]);
+        ajv.addFormat(f, fs7[f]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -11006,12 +11006,12 @@ var require_common = __commonJS({
       createDebug.skips = [];
       createDebug.formatters = {};
       function selectColor(namespace) {
-        let hash = 0;
+        let hash2 = 0;
         for (let i = 0; i < namespace.length; i++) {
-          hash = (hash << 5) - hash + namespace.charCodeAt(i);
-          hash |= 0;
+          hash2 = (hash2 << 5) - hash2 + namespace.charCodeAt(i);
+          hash2 |= 0;
         }
-        return createDebug.colors[Math.abs(hash) % createDebug.colors.length];
+        return createDebug.colors[Math.abs(hash2) % createDebug.colors.length];
       }
       createDebug.selectColor = selectColor;
       function createDebug(namespace) {
@@ -12145,7 +12145,7 @@ var require_dist3 = __commonJS({
 });
 
 // src/hook.ts
-var import_node_fs3 = __toESM(require("fs"), 1);
+var import_node_fs4 = __toESM(require("fs"), 1);
 
 // src/config.ts
 var import_node_fs = __toESM(require("fs"), 1);
@@ -12156,7 +12156,8 @@ var DIRS = {
   // unix socket paths are capped at ~104 bytes on macOS, so keep these short
   sock: import_node_path.default.join(import_node_os.default.tmpdir(), `team-bridge-${import_node_os.default.userInfo().uid}`),
   inbox: import_node_path.default.join(HOME, "inbox"),
-  sessions: import_node_path.default.join(HOME, "sessions")
+  sessions: import_node_path.default.join(HOME, "sessions"),
+  bindings: import_node_path.default.join(import_node_os.default.tmpdir(), `team-bridge-${import_node_os.default.userInfo().uid}`, "bindings")
 };
 function ensureDirs() {
   for (const d of Object.values(DIRS)) import_node_fs.default.mkdirSync(d, { recursive: true });
@@ -12379,14 +12380,108 @@ function localRequest(sock, req, timeoutMs = 1500) {
   });
 }
 
+// src/identity.ts
+var import_node_crypto = __toESM(require("crypto"), 1);
+var import_node_fs3 = __toESM(require("fs"), 1);
+var import_node_path3 = __toESM(require("path"), 1);
+var import_node_child_process2 = require("child_process");
+var hash = (text) => import_node_crypto.default.createHash("sha256").update(text).digest("hex");
+function hostKey() {
+  try {
+    const rows = (0, import_node_child_process2.execFileSync)("ps", ["-A", "-o", "pid=,ppid=,lstart=,comm="], {
+      encoding: "utf8",
+      timeout: 1e3,
+      maxBuffer: 2 * 1024 * 1024
+    });
+    const processes = new Map(rows.trim().split("\n").map((line) => {
+      const parts = line.trim().split(/\s+/);
+      return [Number(parts[0]), { parent: Number(parts[1]), born: parts.slice(2, 7).join(" "), command: parts.slice(7).join(" ") }];
+    }));
+    let pid = process.ppid;
+    for (let i = 0; i < 32 && pid > 1; i++) {
+      const parent = processes.get(pid);
+      if (!parent) return null;
+      if (!["sh", "bash", "zsh", "dash", "ksh", "fish", "env"].includes(import_node_path3.default.basename(parent.command))) {
+        return hash(JSON.stringify([import_node_path3.default.resolve(HOME), pid, parent.born, process.env.CLAUDE_CODE_MESSAGING_SOCKET ?? ""]));
+      }
+      pid = parent.parent;
+    }
+  } catch {
+  }
+  return null;
+}
+var bindingFile;
+function hostBindingFile() {
+  if (bindingFile === void 0) {
+    const key = hostKey();
+    bindingFile = key ? import_node_path3.default.join(DIRS.bindings, `${key}.json`) : null;
+  }
+  return bindingFile;
+}
+function rememberHostSession(sessionId) {
+  const file = hostBindingFile();
+  if (!file) return;
+  ensureDirs();
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    import_node_fs3.default.writeFileSync(tmp, JSON.stringify({ sessionId }), { mode: 384 });
+    import_node_fs3.default.renameSync(tmp, file);
+  } finally {
+    try {
+      import_node_fs3.default.unlinkSync(tmp);
+    } catch {
+    }
+  }
+}
+function readHostSession() {
+  const file = hostBindingFile();
+  const record2 = file ? readJson(file) : null;
+  return typeof record2?.sessionId === "string" && record2.sessionId ? record2.sessionId : void 0;
+}
+function forgetHostSession(sessionId) {
+  const file = hostBindingFile();
+  if (file && readHostSession() === sessionId) {
+    try {
+      import_node_fs3.default.unlinkSync(file);
+    } catch {
+    }
+  }
+}
+function sessionRef(sessionId) {
+  ensureDirs();
+  const file = import_node_path3.default.join(DIRS.sessions, `${hash(sessionId)}.json`);
+  const existing = () => {
+    const record2 = readJson(file);
+    if (record2?.sessionId !== sessionId || !/^[0-9a-f]{6}$/.test(record2.ref)) {
+      throw new Error(`invalid saved session identity: ${file}`);
+    }
+    return record2.ref;
+  };
+  if (import_node_fs3.default.existsSync(file)) return existing();
+  const ref = import_node_crypto.default.randomBytes(3).toString("hex");
+  const tmp = `${file}.${process.pid}.${import_node_crypto.default.randomBytes(4).toString("hex")}.tmp`;
+  try {
+    import_node_fs3.default.writeFileSync(tmp, JSON.stringify({ sessionId, ref }) + "\n", { mode: 384 });
+    try {
+      import_node_fs3.default.linkSync(tmp, file);
+    } catch (error2) {
+      if (error2.code !== "EEXIST") throw error2;
+    }
+    return existing();
+  } finally {
+    import_node_fs3.default.unlinkSync(tmp);
+  }
+}
+
 // src/hook.ts
 async function runHook(event) {
   const input = readInput();
   if (!input) return;
+  if (event === "SessionEnd") forgetHostSession(input.session_id);
+  else rememberHostSession(input.session_id);
   const cwd = input.cwd || process.cwd();
   if (!findProjectConfig(cwd)) return;
   const sw = effective(readState(), input.session_id);
-  if (!sw.enabled) return;
   const meta = findSessionBridge(cwd, input.session_id);
   if (!meta) return;
   const call = (req) => localRequest(meta.sock, req).catch(() => null);
@@ -12394,6 +12489,7 @@ async function runHook(event) {
     const bound = await call({ op: "bind", sessionId: input.session_id });
     if (!bound?.ok) return;
   }
+  if (!sw.enabled) return;
   switch (event) {
     case "SessionStart": {
       await call({ op: "status", status: "busy" });
@@ -12441,7 +12537,7 @@ function emitContext(hookEventName, additionalContext) {
 }
 function readInput() {
   try {
-    const raw = import_node_fs3.default.readFileSync(0, "utf8");
+    const raw = import_node_fs4.default.readFileSync(0, "utf8");
     return raw.trim() ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -12467,10 +12563,10 @@ function runConfigure(args) {
 }
 
 // src/mcp.ts
-var import_node_crypto = __toESM(require("crypto"), 1);
-var import_node_fs4 = __toESM(require("fs"), 1);
+var import_node_crypto2 = __toESM(require("crypto"), 1);
+var import_node_fs5 = __toESM(require("fs"), 1);
 var import_node_os3 = __toESM(require("os"), 1);
-var import_node_path3 = __toESM(require("path"), 1);
+var import_node_path4 = __toESM(require("path"), 1);
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
@@ -12950,8 +13046,8 @@ function getErrorMap() {
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path5, errorMaps, issueData } = params;
-  const fullPath = [...path5, ...issueData.path || []];
+  const { data, path: path6, errorMaps, issueData } = params;
+  const fullPath = [...path6, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -13067,11 +13163,11 @@ var errorUtil;
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path5, key) {
+  constructor(parent, value, path6, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path5;
+    this._path = path6;
     this._key = key;
   }
   get path() {
@@ -16708,10 +16804,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -17031,11 +17127,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -20446,11 +20542,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path5) {
-  if (path5.length === 0) {
+function getDotPath(path6) {
+  if (path6.length === 0) {
     return "object root";
   }
-  return path5.reduce((acc, seg, index) => {
+  return path6.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -27002,14 +27098,14 @@ var HubClient = class extends import_node_events.EventEmitter {
 };
 
 // src/notify.ts
-var import_node_child_process2 = require("child_process");
+var import_node_child_process3 = require("child_process");
 function notifyDesktop(title, body) {
   const esc2 = (s) => s.replace(/["\\]/g, "\\$&").slice(0, 200);
   if (process.platform === "darwin") {
-    (0, import_node_child_process2.execFile)("osascript", ["-e", `display notification "${esc2(body)}" with title "${esc2(title)}"`], () => {
+    (0, import_node_child_process3.execFile)("osascript", ["-e", `display notification "${esc2(body)}" with title "${esc2(title)}"`], () => {
     });
   } else if (process.platform === "linux") {
-    (0, import_node_child_process2.execFile)("notify-send", [title, body], () => {
+    (0, import_node_child_process3.execFile)("notify-send", [title, body], () => {
     });
   }
 }
@@ -27028,6 +27124,9 @@ var Mailbox = class {
   }
   get cursor() {
     return this.sequence;
+  }
+  clear() {
+    this.entries = [];
   }
   push(message) {
     if (this.entries.some((entry) => entry.message.id === message.id)) return;
@@ -27075,8 +27174,8 @@ async function runMcp() {
   const cwd = process.cwd();
   const creds = readCredentials();
   let project = findProjectConfig(cwd);
-  const ref = import_node_crypto.default.randomBytes(3).toString("hex");
-  const spool = import_node_path3.default.join(DIRS.inbox, `${process.pid}.jsonl`);
+  let ref;
+  const spool = import_node_path4.default.join(DIRS.inbox, `${process.pid}.jsonl`);
   let sessionId;
   let status = "idle";
   let hub = null;
@@ -27086,18 +27185,18 @@ async function runMcp() {
     cwd,
     startedAt: Date.now(),
     messagingSocket: process.env.CLAUDE_CODE_MESSAGING_SOCKET,
-    sock: import_node_path3.default.join(DIRS.sock, `${process.pid}.sock`)
+    sock: import_node_path4.default.join(DIRS.sock, `${process.pid}.sock`)
   };
   writeMeta(meta);
   const switches = () => effective(readState(), sessionId);
   const canDeliver = () => {
     const s = switches();
-    return !!project && s.enabled && !s.dnd;
+    return !!sessionId && !!project && s.enabled && !s.dnd;
   };
   const inbox = new Mailbox(canDeliver);
-  const inactiveReason = () => !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
+  const inactiveReason = () => !project ? "this project has no .team-bridge.json, so it is not in any room (/team join <code>)" : !sessionId ? "waiting for Claude session identity from a hook; no temporary room identity has been registered" : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)` : !switches().enabled ? "team bridge is switched off for this session (/team on to enable)" : null;
   const connect = () => {
-    if (!project || hub) return;
+    if (!project || !ref || !sessionId || hub) return;
     const room = project.room;
     hub = new HubClient({
       hub: creds.hub,
@@ -27108,20 +27207,23 @@ async function runMcp() {
         user: creds.user,
         host: import_node_os3.default.hostname(),
         cwd,
-        repo: import_node_path3.default.basename(project.root),
+        repo: import_node_path4.default.basename(project.root),
         visible: switches().visible,
         status
       }
     });
+    const connection = hub;
     hub.on("message", (m) => {
-      import_node_fs4.default.appendFileSync(spool, JSON.stringify(m) + "\n");
+      if (hub !== connection) return;
+      import_node_fs5.default.appendFileSync(spool, JSON.stringify(m) + "\n");
       inbox.push(m);
       if (!canDeliver()) return;
       if (status === "idle") notifyDesktop(`Claude: message from ${m.from}`, m.body.split("\n")[0] ?? "");
     });
     hub.on("idle-notice", (n) => {
+      if (hub !== connection) return;
       const m = {
-        id: import_node_crypto.default.randomUUID(),
+        id: import_node_crypto2.default.randomUUID(),
         from: n.name,
         fromRef: n.ref,
         at: Date.now(),
@@ -27138,9 +27240,32 @@ async function runMcp() {
     hub = null;
     log(why);
   };
-  if (project && switches().enabled) connect();
+  const bindSession = (id) => {
+    if (id === sessionId) return;
+    const nextRef = sessionRef(id);
+    disconnect("session identity changed");
+    if (sessionId) {
+      inbox.clear();
+      import_node_fs5.default.writeFileSync(spool, "");
+    }
+    sessionId = id;
+    ref = nextRef;
+    status = "idle";
+    writeMeta({ ...meta, sessionId });
+    if (project && switches().enabled) connect();
+  };
+  const initialSession = readHostSession();
+  if (initialSession) bindSession(initialSession);
   else log(inactiveReason());
-  import_node_fs4.default.watchFile(statePath(), { interval: 1e3 }, () => {
+  setInterval(() => {
+    try {
+      const id = readHostSession();
+      if (id && id !== sessionId) bindSession(id);
+    } catch (error2) {
+      log("session identity unavailable:", String(error2));
+    }
+  }, 500).unref();
+  import_node_fs5.default.watchFile(statePath(), { interval: 1e3 }, () => {
     const s = switches();
     if (!s.enabled) disconnect("switched off");
     else if (project && !hub) connect();
@@ -27160,7 +27285,7 @@ async function runMcp() {
   }, 2e3).unref();
   const drain = () => {
     const out = inbox.drain();
-    if (out.length) import_node_fs4.default.writeFileSync(spool, "");
+    if (out.length) import_node_fs5.default.writeFileSync(spool, "");
     return out;
   };
   startLocalServer(process.pid, (req) => {
@@ -27168,9 +27293,10 @@ async function runMcp() {
       case "info":
         return { pid: process.pid, cwd, sessionId, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
       case "bind":
-        if (sessionId && sessionId !== req.sessionId) return { error: "bridge already bound to another session" };
-        sessionId = req.sessionId;
-        writeMeta({ ...meta, sessionId });
+        if (sessionId && sessionId !== req.sessionId && readHostSession() !== req.sessionId) {
+          return { error: "bridge already bound to another session" };
+        }
+        bindSession(req.sessionId);
         return { ok: true };
       case "status":
         status = req.status;
@@ -27183,6 +27309,7 @@ async function runMcp() {
       case "drain":
         return { messages: drain() };
       case "set": {
+        if (!sessionId) return { error: "waiting for Claude session identity; use --global to change defaults" };
         const state = readState();
         if (sessionId) state.sessions[sessionId] = { ...state.sessions[sessionId], ...req.patch };
         else Object.assign(state, req.patch);
@@ -27195,7 +27322,7 @@ async function runMcp() {
   const cleanup = () => {
     removeMeta(process.pid);
     try {
-      import_node_fs4.default.unlinkSync(spool);
+      import_node_fs5.default.unlinkSync(spool);
     } catch {
     }
     hub?.close();
@@ -27277,7 +27404,8 @@ async function runMcp() {
     async () => {
       const s = switches();
       const text = [
-        `name: ${hub?.name || "(not registered)"} [${ref}]`,
+        `name: ${hub?.name || "(not registered)"} [${ref ?? "pending"}]`,
+        `session: ${sessionId ?? "(waiting for hook)"}`,
         `hub: ${creds.hub}  room: ${project?.room ?? "(no .team-bridge.json)"}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
@@ -27386,8 +27514,8 @@ async function runRoom(args) {
 }
 
 // src/team.ts
-var import_node_fs5 = __toESM(require("fs"), 1);
-var import_node_path4 = __toESM(require("path"), 1);
+var import_node_fs6 = __toESM(require("fs"), 1);
+var import_node_path5 = __toESM(require("path"), 1);
 async function runTeam(args) {
   const global = args.includes("--global");
   const positional = args.filter((a) => !a.startsWith("--"));
@@ -27397,7 +27525,7 @@ async function runTeam(args) {
     const i = args.indexOf("--name");
     const r2 = await createRoom(i >= 0 ? args[i + 1] ?? "" : "");
     writeProjectConfig(cwd, r2.code);
-    console.log(`room created: ${r2.code}${r2.name ? ` (${r2.name})` : ""}; this directory joined it (${import_node_path4.default.join(cwd, PROJECT_FILE)}).`);
+    console.log(`room created: ${r2.code}${r2.name ? ` (${r2.name})` : ""}; this directory joined it (${import_node_path5.default.join(cwd, PROJECT_FILE)}).`);
     console.log(`share the code \u2014 colleagues run \`/team join ${r2.code}\` in their repo. This session connects within a few seconds.`);
     return;
   }
@@ -27415,7 +27543,7 @@ async function runTeam(args) {
       return;
     }
     writeProjectConfig(cwd, info.code);
-    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; wrote ${import_node_path4.default.join(cwd, PROJECT_FILE)}. This session connects within a few seconds \u2014 no restart needed.`);
+    console.log(`joined room ${info.code}${info.name ? ` (${info.name})` : ""}; wrote ${import_node_path5.default.join(cwd, PROJECT_FILE)}. This session connects within a few seconds \u2014 no restart needed.`);
     return;
   }
   if (cmd2 === "leave") {
@@ -27424,8 +27552,8 @@ async function runTeam(args) {
       console.log("this directory is not in a room");
       return;
     }
-    import_node_fs5.default.unlinkSync(import_node_path4.default.join(cfg.root, PROJECT_FILE));
-    console.log(`left room ${cfg.room}; removed ${import_node_path4.default.join(cfg.root, PROJECT_FILE)}`);
+    import_node_fs6.default.unlinkSync(import_node_path5.default.join(cfg.root, PROJECT_FILE));
+    console.log(`left room ${cfg.room}; removed ${import_node_path5.default.join(cfg.root, PROJECT_FILE)}`);
     return;
   }
   const patch = cmd2 === "on" ? { enabled: true, dnd: false } : cmd2 === "off" ? { enabled: false } : cmd2 === "dnd" ? { enabled: true, dnd: true } : cmd2 === "visible" ? { visible: true } : cmd2 === "invisible" ? { visible: false } : null;

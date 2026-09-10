@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import { effective, findProjectConfig, readState } from './config';
 import { renderMessages } from './inbox';
 import { findSessionBridge, localRequest } from './local';
+import { forgetHostSession, rememberHostSession } from './identity';
 
 interface HookInput {
   session_id: string;
@@ -20,10 +21,11 @@ interface HookInput {
 export async function runHook(event: string) {
   const input = readInput();
   if (!input) return;
+  if (event === 'SessionEnd') forgetHostSession(input.session_id);
+  else rememberHostSession(input.session_id);
   const cwd = input.cwd || process.cwd();
   if (!findProjectConfig(cwd)) return; // project not opted in — cheapest possible exit
   const sw = effective(readState(), input.session_id);
-  if (!sw.enabled) return;
 
   const meta = findSessionBridge(cwd, input.session_id);
   if (!meta) return;
@@ -33,6 +35,7 @@ export async function runHook(event: string) {
     const bound = await call<{ ok?: boolean }>({ op: 'bind', sessionId: input.session_id });
     if (!bound?.ok) return;
   }
+  if (!sw.enabled) return;
 
   switch (event) {
     case 'SessionStart': {

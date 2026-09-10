@@ -9,4 +9,6 @@
 
 After updating monitor code, restart the Claude session; `/reload-plugins` refreshes MCP servers and hooks but does not replace an already running monitor.
 
+From 0.2.7, identity is saved per Claude conversation. `claude --resume` and MCP restarts retain the same `ref`; new/forked conversations get separate identities. Upgrading from earlier versions changes the identity once. Saved identities remain in the plugin data directory across updates.
+
 State lives in `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/team-bridge-*/`) and is removed on uninstall.

@@ -7,6 +7,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 
 import path from 'node:path';
 import { spawn as spawnProc } from 'node:child_process';
@@ -18,15 +19,16 @@ delete process.env.TEAM_BRIDGE_HOME;
 const bin = `${R}/plugin/dist/team-bridge.cjs`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (res) => res.content.map((c) => c.text).join('\n');
+const envFor = (cwd) => ({ ...process.env, CLAUDE_CODE_MESSAGING_SOCKET: `${S}/${path.basename(cwd)}-host.sock` });
 
 async function spawn(cwd) {
   const client = new Client({ name: 'smoke', version: '0' });
-  await client.connect(new StdioClientTransport({ command: 'node', args: [bin, 'mcp'], cwd, env: { ...process.env }, stderr: 'pipe' }));
+  await client.connect(new StdioClientTransport({ command: 'node', args: [bin, 'mcp'], cwd, env: envFor(cwd), stderr: 'pipe' }));
   return client;
 }
 function hook(event, cwd, session_id, extra = {}) {
   const input = JSON.stringify({ session_id, cwd, hook_event_name: event, ...extra });
-  return execFileSync('node', [bin, 'hook', event], { input, cwd, env: process.env }).toString();
+  return execFileSync('node', [bin, 'hook', event], { input, cwd, env: envFor(cwd) }).toString();
 }
 
 import fs from 'node:fs';
@@ -42,7 +44,9 @@ try {
 } catch (e) { console.log('bogus code ->', e.stdout.toString().trim(), '(exit', e.status + ')'); }
 
 const A = await spawn(`${S}/repoA`);
-const B = await spawn(`${S}/repoB`);
+let B = await spawn(`${S}/repoB`);
+hook('SessionStart', `${S}/repoA`, 'sess-A');
+hook('SessionStart', `${S}/repoB`, 'sess-B');
 // wait until both have registered with the hub (slow links / proxies can take a few seconds)
 async function untilConnected(c, label) {
   for (let i = 0; i < 40; i++) {
@@ -65,7 +69,7 @@ console.log('--- B: SessionStart hook (binds session id)');
 console.log(hook('SessionStart', `${S}/repoB`, 'sess-B') || '(no output)');
 
 console.log('--- B: start monitor process (as monitors.json would)');
-const mon = spawnProc('node', [bin, 'monitor'], { cwd: `${S}/repoB`, env: process.env, stdio: ['ignore', 'pipe', 'inherit'] });
+const mon = spawnProc('node', [bin, 'monitor'], { cwd: `${S}/repoB`, env: envFor(`${S}/repoB`), stdio: ['ignore', 'pipe', 'inherit'] });
 let monOut = '';
 mon.stdout.on('data', (d) => { monOut += d.toString(); });
 await sleep(1500);
@@ -87,18 +91,25 @@ console.log('--- A -> unknown name');
 console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: 'nobody-here', message: 'x' } })));
 
 console.log('--- B: /team dnd, then A sends, B drains nothing');
-console.log(execFileSync('node', [bin, 'team', 'dnd'], { cwd: `${S}/repoB`, env: process.env }).toString());
+console.log(execFileSync('node', [bin, 'team', 'dnd'], { cwd: `${S}/repoB`, env: envFor(`${S}/repoB`) }).toString());
 console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: bName, message: 'while dnd' } })));
 await sleep(300);
 console.log('drained under dnd:', JSON.stringify(hook('PostToolUse', `${S}/repoB`, 'sess-B', { tool_name: 'Read' })));
-console.log(execFileSync('node', [bin, 'team', 'on'], { cwd: `${S}/repoB`, env: process.env }).toString());
+console.log(execFileSync('node', [bin, 'team', 'on'], { cwd: `${S}/repoB`, env: envFor(`${S}/repoB`) }).toString());
 console.log('drained after on:', hook('Stop', `${S}/repoB`, 'sess-B').slice(0, 160), '...');
 
 console.log('--- offline queue: kill B, A sends, B comes back');
 await B.close();
 await sleep(800);
 console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: bName, message: 'queued while offline' } })));
-console.log('(new B process gets a new ref, so this only proves queueing; resume-on-reconnect needs the same process)');
+B = await spawn(`${S}/repoB`);
+await untilConnected(B, 'resumed B');
+const resumedStatus = text(await B.callTool({ name: 'team_status', arguments: {} }));
+assert.ok(resumedStatus.includes(`name: ${bName} [`), 'B keeps its name after restarting');
+const offlineMail = text(await B.callTool({ name: 'team_read_messages', arguments: {} }));
+assert.match(offlineMail, /queued while offline/);
+console.log('resumed B kept its identity and received mail sent to its old name');
+await B.close();
 
 mon.kill();
 console.log('--- team_status on A');

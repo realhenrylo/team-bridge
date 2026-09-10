@@ -12,6 +12,8 @@ export class Mailbox {
   get size() { return this.entries.length; }
   get cursor() { return this.sequence; }
 
+  clear() { this.entries = []; }
+
   push(message: InboundMessage) {
     if (this.entries.some((entry) => entry.message.id === message.id)) return;
     this.entries.push({ sequence: ++this.sequence, message });
