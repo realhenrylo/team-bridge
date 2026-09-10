@@ -1,8 +1,8 @@
 node_modules
 dist/
-!plugin/dist/
-plugin/dist/*.map
+!plugins/claude/team-bridge/dist/
+plugins/claude/team-bridge/dist/*.map
 .wrangler
 .dev.vars
-!plugins/team-bridge/dist/
-plugins/team-bridge/dist/*.map
+!plugins/codex/team-bridge/dist/
+plugins/codex/team-bridge/dist/*.map

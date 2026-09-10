@@ -1,8 +1,8 @@
 # Codex plugin
 
-The Codex package lives in `plugins/team-bridge/`. It shares the Hub, protocol,
+The Codex package lives in `plugins/codex/team-bridge/`. It shares the Hub, protocol,
 mailbox, room configuration and messaging tools with the Claude package in
-`plugin/`. The Hub needs no new deployment for mixed rooms.
+`plugins/claude/team-bridge/`. The Hub needs no new deployment for mixed rooms.
 
 ## Install
 
@@ -93,4 +93,4 @@ real conversations. It also reruns both Claude delivery scenarios.
 
 For local plugin iterations, bump the Codex manifest cachebuster and reinstall;
 new conversations load the installed copy. Both packages contain the same generated
-bundle, copied by `scripts/copy-codex-bundle.mjs`; CI checks both copies.
+bundle, copied by `scripts/package-plugins.mjs`; CI checks both copies.

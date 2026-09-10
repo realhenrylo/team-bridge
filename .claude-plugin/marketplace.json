@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "team-bridge",
-      "source": "./plugin",
+      "source": "./plugins/claude/team-bridge",
       "description": "Message colleagues' Claude Code sessions through a shared hub."
     }
   ]

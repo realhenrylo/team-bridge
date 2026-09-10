@@ -7,22 +7,23 @@ For Codex installation and usage, see [the Codex guide](docs/codex.md).
 The full Claude plugin command is `/team-bridge:team`; `/team` below is shorthand. If Claude reports `/team` as unknown, use the full name, for example `/team-bridge:team on`.
 
 ```
-packages/protocol           shared wire protocol and validation
-packages/hub                Cloudflare room service (both hosts)
-packages/bridge             shared MCP, mailbox, room and identity logic
-packages/bridge/src/hosts   host-specific delivery adapters (Codex queue)
-plugin/                     existing Claude package; keep its install path stable
-plugins/team-bridge/        Codex package: skill, MCP launcher, lifecycle hooks
+packages/protocol/          shared wire protocol and validation
+packages/hub/               Cloudflare room service (both hosts)
+packages/bridge/            shared MCP, mailbox, room and identity logic
+  src/hosts/                host-specific delivery adapters
+plugins/
+  claude/team-bridge/       Claude package: commands, MCP, hooks and monitor
+  codex/team-bridge/        Codex package: skills, MCP launcher and hooks
 .claude-plugin/             Claude marketplace catalog
-.agents/plugins/            Codex marketplace catalog
-scripts/                    build and release both self-contained packages
+.agents/plugins/           Codex marketplace catalog
+scripts/                   build and release both self-contained packages
 ```
 
 The two installation packages contain the same generated bridge bundle. Host
 selection is explicit (`mcp` for Claude, `mcp --codex` for Codex); the Codex launcher
-selects it automatically. Claude's existing package path and commands are retained
-for compatibility. Protocol and Hub changes are shared, while host-specific
-lifecycle and notification behavior stays in the bridge adapter/package layers.
+selects it automatically. The bridge builds once into `packages/bridge/dist/`,
+then `scripts/package-plugins.mjs` copies it into both packages. Protocol and Hub
+changes are shared, while host-specific lifecycle and notification behavior stays in the bridge adapter/package layers.
 
 ## Deploy the hub (once, you)
 
@@ -39,12 +40,12 @@ npx wrangler deploy                     # -> https://hub.agentroom.online
 ## Build the plugin
 
 ```sh
-pnpm build                              # -> plugin/dist/team-bridge.cjs
+pnpm build                              # -> packages/bridge/dist/ + both plugin packages
 ```
 
 ## Distribute via GitHub
 
-This repo *is* the marketplace (`.claude-plugin/marketplace.json` at the root points at `./plugin`). Claude Code copies `plugin/` into `~/.claude/plugins/cache/`, so the built bundle `plugin/dist/team-bridge.cjs` is committed — never edit it by hand, run `scripts/release.sh <version>`.
+This repo *is* the marketplace (`.claude-plugin/marketplace.json` at the root points at `./plugins/claude/team-bridge`). Claude Code copies `plugins/claude/team-bridge/` into `~/.claude/plugins/cache/`, so the built bundle `plugins/claude/team-bridge/dist/team-bridge.cjs` is committed — never edit it by hand, run `scripts/release.sh <version>`.
 
 ```sh
 git init && git add -A && git commit -m "team-bridge"
@@ -72,13 +73,13 @@ Or make it automatic for a project: add to that repo's `.claude/settings.json` a
 ## Release an update
 
 ```sh
-scripts/release.sh 0.3.0     # pnpm build + bump plugin/.claude-plugin/plugin.json
-git add -A && git commit -m "release plugin 0.3.0" && git push
+scripts/release.sh 0.3.1     # build both packages + bump both plugin manifests
+git add -A && git commit -m "release plugin 0.3.1" && git push
 ```
 
 Because `plugin.json` declares a `version`, users only see an update when that string changes; `/plugin update team-bridge@team-bridge-marketplace` (or auto-update, once per session) installs it. The previous version's cache dir lingers ~14 days so sessions still running on it keep working; `${CLAUDE_PLUGIN_DATA}` is untouched by updates. CI (`.github/workflows/plugin-bundle.yml`) fails if the committed bundle doesn't match a fresh build.
 
-Local development without installing: `claude --plugin-dir ./plugin`. After `pnpm build`, `/reload-plugins` refreshes MCP servers and hooks; restart the Claude session to load changes to the monitor process.
+Local development without installing: `claude --plugin-dir ./plugins/claude/team-bridge`. After `pnpm build`, `/reload-plugins` refreshes MCP servers and hooks; restart the Claude session to load changes to the monitor process.
 
 ## Per colleague
 
@@ -107,7 +108,7 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 - Recipient's MCP process spools the message; the next hook (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) drains it via a local unix socket and injects it as `<team-message>` context. Hooks never touch the network.
 - `Stop` with unread mail returns `decision: block` so Claude handles it before going idle.
 - The plugin **monitor** is off at session startup. The first invocation of `/team` (including `/team on`, `join`, `create`, or `status`) starts it for that session. In an already joined repo, run `/team on` in each new session to enable idle notifications. Repeated `/team` invocations do not start additional monitors.
-- Once started, the monitor (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
+- Once started, the monitor (`team-bridge monitor`, see `plugins/claude/team-bridge/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
 - Monitors, hooks, and session switches use the session's messaging socket identity or its parent process chain, never the closest start time in the same directory. A monitor stays alive while its bridge restarts. Cursor-based waits include existing unread mail and notify when DND is lifted.
 - Room identity is persisted per Claude `session_id`. Exiting and resuming the same conversation, or restarting its MCP server, keeps its `ref`; a new or forked conversation gets a separate identity. The bridge waits for the session hook before registering. Identity records live in the plugin data directory and survive plugin updates. Upgrading from 0.2.6 or earlier assigns a new identity once because older refs were not saved.
 - Task requests use the session's existing user instructions and tool permissions; the plugin does not add a second blanket confirmation step. Results or blockers are sent back to the original sender. A `delivered` receipt means the bridge received the message, not that Claude has started or finished the task.

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 
-const bin = path.resolve(import.meta.dirname, '../../../plugin/dist/team-bridge.cjs');
+const bin = path.resolve(import.meta.dirname, '../../../plugins/claude/team-bridge/dist/team-bridge.cjs');
 const fixture = path.join(import.meta.dirname, 'fixtures/session.mjs');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const text = (result) => result.content.map((item) => item.text ?? '').join('\n');

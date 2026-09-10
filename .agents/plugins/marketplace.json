@@ -8,7 +8,7 @@
       "name": "team-bridge",
       "source": {
         "source": "local",
-        "path": "./plugins/team-bridge"
+        "path": "./plugins/codex/team-bridge"
       },
       "policy": {
         "installation": "AVAILABLE",

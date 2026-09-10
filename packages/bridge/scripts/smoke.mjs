@@ -16,7 +16,7 @@ process.env.CLAUDE_PLUGIN_DATA = `${S}/plugin-data`;
 if (process.env.HUB !== 'default') process.env.TEAM_BRIDGE_HUB = process.env.HUB ?? 'ws://localhost:8799'; // HUB=default -> built-in hub
 process.env.CLAUDE_PLUGIN_OPTION_USER = 'Henry Lo';
 delete process.env.TEAM_BRIDGE_HOME;
-const bin = `${R}/plugin/dist/team-bridge.cjs`;
+const bin = `${R}/plugins/claude/team-bridge/dist/team-bridge.cjs`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (res) => res.content.map((c) => c.text).join('\n');
 const envFor = (cwd) => ({ ...process.env, CLAUDE_CODE_MESSAGING_SOCKET: `${S}/${path.basename(cwd)}-host.sock` });

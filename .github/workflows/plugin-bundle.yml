@@ -13,4 +13,4 @@ jobs:
       - run: pnpm build
       - run: pnpm --filter @team-bridge/bridge test
       - name: committed bundle must match a fresh build
-        run: git diff --exit-code -- plugin/dist/team-bridge.cjs plugins/team-bridge/dist/team-bridge.cjs
+        run: git diff --exit-code -- plugins/claude/team-bridge/dist/team-bridge.cjs plugins/codex/team-bridge/dist/team-bridge.cjs

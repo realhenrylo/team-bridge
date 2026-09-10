@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const plugin = path.resolve(import.meta.dirname, '../../../plugins/team-bridge');
+const plugin = path.resolve(import.meta.dirname, '../../../plugins/codex/team-bridge');
 const launcher = path.join(plugin, 'scripts/mcp');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn) { for (let i = 0; i < 100; i++) { if (await fn()) return; await sleep(50); } assert.fail('timed out'); }
