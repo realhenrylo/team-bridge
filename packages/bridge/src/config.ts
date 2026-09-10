@@ -36,7 +36,6 @@ export const DEFAULT_HUB = 'wss://hub.agentroom.online';
 export interface Credentials {
   hub: string; // wss://team-bridge-hub.<you>.workers.dev
   user: string;
-  createToken?: string; // only needed to create rooms, if the hub requires it
 }
 
 const CRED_PATH = path.join(HOME, 'credentials.json');
@@ -46,8 +45,7 @@ export function readCredentials(): Credentials {
   const file = readJson<Partial<Credentials>>(CRED_PATH) ?? {};
   const hub = env.CLAUDE_PLUGIN_OPTION_HUB || env.TEAM_BRIDGE_HUB || file.hub || DEFAULT_HUB;
   const user = env.CLAUDE_PLUGIN_OPTION_USER || file.user || os.userInfo().username;
-  const createToken = env.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN || file.createToken;
-  return { hub: hub.replace(/^http/, 'ws'), user: normalizeUser(user), ...(createToken ? { createToken } : {}) };
+  return { hub: hub.replace(/^http/, 'ws'), user: normalizeUser(user) };
 }
 
 export function normalizeUser(u: string) {

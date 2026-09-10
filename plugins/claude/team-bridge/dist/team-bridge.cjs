@@ -12187,8 +12187,7 @@ function readCredentials() {
   const file = readJson(CRED_PATH) ?? {};
   const hub = env2.CLAUDE_PLUGIN_OPTION_HUB || env2.TEAM_BRIDGE_HUB || file.hub || DEFAULT_HUB;
   const user = env2.CLAUDE_PLUGIN_OPTION_USER || file.user || import_node_os.default.userInfo().username;
-  const createToken = env2.CLAUDE_PLUGIN_OPTION_CREATE_TOKEN || file.createToken;
-  return { hub: hub.replace(/^http/, "ws"), user: normalizeUser(user), ...createToken ? { createToken } : {} };
+  return { hub: hub.replace(/^http/, "ws"), user: normalizeUser(user) };
 }
 function normalizeUser(u) {
   return u.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "user";
@@ -12531,13 +12530,12 @@ function runConfigure(args) {
   };
   const hub = get("hub") ?? DEFAULT_HUB;
   const user = get("user");
-  const createToken = get("create-token");
   if (!user) {
-    console.error("usage: team-bridge configure --user <your name> [--hub wss://...] [--create-token <token>]");
+    console.error("usage: team-bridge configure --user <your name> [--hub wss://...]");
     process.exitCode = 1;
     return;
   }
-  writeCredentials({ hub: hub.replace(/^http/, "ws"), user: normalizeUser(user), ...createToken ? { createToken } : {} });
+  writeCredentials({ hub: hub.replace(/^http/, "ws"), user: normalizeUser(user) });
   console.log(`saved local config: user=${normalizeUser(user)} hub=${hub}`);
 }
 
@@ -27137,12 +27135,10 @@ function httpBase() {
   return readCredentials().hub.replace(/^ws/, "http");
 }
 async function createRoom(name) {
-  const creds = readCredentials();
   const res = await httpRequest(`${httpBase()}/rooms`, {
     method: "POST",
     headers: {
-      "content-type": "application/json",
-      ...creds.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}
+      "content-type": "application/json"
     },
     body: JSON.stringify({ name })
   });

@@ -7,15 +7,8 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.get('/health', (c) => c.json({ ok: true, now: Date.now() }));
 
-/**
- * Create a room. If CREATE_TOKEN is set, creation requires it (so strangers
- * who find the hub URL can't fill it with rooms); joining only needs the code.
- */
+/** Room creation is public; joining requires the room code. */
 app.post('/rooms', async (c) => {
-  if (c.env.CREATE_TOKEN) {
-    const auth = c.req.header('Authorization') ?? '';
-    if (auth !== `Bearer ${c.env.CREATE_TOKEN}`) return c.text('unauthorized', 401);
-  }
   const body = await c.req.json<{ name?: string }>().catch(() => ({}) as { name?: string });
   const code = newRoomCode();
   const stub = c.env.TEAM_ROOM.get(c.env.TEAM_ROOM.idFromName(code));

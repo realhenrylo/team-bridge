@@ -31,7 +31,6 @@ changes are shared, while host-specific lifecycle and notification behavior stay
 pnpm install
 cd packages/hub
 npx wrangler login
-npx wrangler secret put CREATE_TOKEN    # optional: gate room creation (joining only needs the code)
 npx wrangler deploy                     # -> https://hub.agentroom.online
 ```
 
@@ -83,7 +82,7 @@ Local development without installing: `claude --plugin-dir ./plugins/claude/team
 
 ## Per colleague
 
-Installing the plugin asks for a display name (optional — defaults to your OS user name) and an optional room-creation token. The hub (`wss://hub.agentroom.online`) is built in; self-hosters override it with `TEAM_BRIDGE_HUB`. Then, inside `claude` in the repo:
+Installing the plugin asks for a display name (optional — defaults to your OS user name). The hub (`wss://hub.agentroom.online`) is built in; self-hosters override it with `TEAM_BRIDGE_HUB`. Then, inside `claude` in the repo:
 
 ```
 /team create --name backend   # open a room and join this repo to it; share the code
@@ -132,7 +131,7 @@ For the interactive acceptance check, start two Claude Code sessions with the lo
 | What | Where |
 |---|---|
 | `credentials.json` (fallback), inbox spool | `${CLAUDE_PLUGIN_DATA}` = `~/.claude/plugins/data/<plugin-id>/` — survives updates, removed on uninstall |
-| user name, create token | plugin `userConfig` → `~/.claude/settings.json` / Keychain, exported as `CLAUDE_PLUGIN_OPTION_*`; hub URL is built in (`DEFAULT_HUB`, override `TEAM_BRIDGE_HUB`) |
+| user name | plugin `userConfig` → `~/.claude/settings.json`, exported as `CLAUDE_PLUGIN_OPTION_*`; hub URL is built in (`DEFAULT_HUB`, override `TEAM_BRIDGE_HUB`) |
 | unix sockets + meta | `os.tmpdir()/team-bridge-<uid>/` (short paths; per-process, ephemeral) |
 | Conversation identity, room and switches | `<plugin-data>/conversations/<session-hash>.json`, keyed by host + conversation ID |
 | the bundled CLI | `${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs` — read-only, replaced on update |

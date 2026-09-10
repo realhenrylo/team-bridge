@@ -27,8 +27,7 @@ approval. Then ask:
 $team join YOUR-ROOM-CODE
 ```
 
-To create a room, use `$team create`; a room-creation token is only needed if your
-Hub requires it. The default Hub is `wss://hub.agentroom.online`. Anyone using the
+To create a room, use `$team create`; room creation is public and needs no token. The default Hub is `wss://hub.agentroom.online`. Anyone using the
 Claude plugin can join the same room code.
 
 Incoming notifications start **off** whenever the MCP process starts. `$team on`,
@@ -63,9 +62,8 @@ absolute `cwd`; identity and room membership always come from request metadata, 
 Data uses `TEAM_BRIDGE_HOME`, then `PLUGIN_DATA` if supplied by the host, otherwise
 `$CODEX_HOME/team-bridge` (`~/.codex/team-bridge` by default). The fallback survives
 plugin updates and removal. `TEAM_BRIDGE_HUB` supports self-hosting. To configure
-a display name or creation token, run the installed `dist/team-bridge.cjs configure`
-command with `TEAM_BRIDGE_HOME` pointing to the same data directory. Tokens should
-be configured locally rather than sent in a conversation.
+a display name, run the installed `dist/team-bridge.cjs configure`
+command with `TEAM_BRIDGE_HOME` pointing to the same data directory.
 
 ## Delivery
 

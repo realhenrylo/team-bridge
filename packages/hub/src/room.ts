@@ -11,8 +11,6 @@ import {
 
 export interface Env {
   TEAM_ROOM: DurableObjectNamespace<TeamRoom>;
-  /** optional: required to create rooms; joining only needs the room code */
-  CREATE_TOKEN?: string;
   /** days without activity before a room is destroyed (default 7) */
   ROOM_IDLE_DAYS?: string;
 }

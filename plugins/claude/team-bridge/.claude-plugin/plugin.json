@@ -1,6 +1,6 @@
 {
   "name": "team-bridge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Connect this Claude Code session to a team room: list colleagues' sessions and message them (team_list_agents / team_send_message).",
   "author": {
     "name": "henrylo"
@@ -11,12 +11,6 @@
       "title": "Your name",
       "description": "Shown to colleagues as part of your session name (letters/digits, e.g. alice). Defaults to your OS user name.",
       "required": false
-    },
-    "create_token": {
-      "type": "string",
-      "title": "Room-creation token",
-      "description": "Only needed if the hub gates room creation (CREATE_TOKEN). Leave empty otherwise.",
-      "sensitive": true
     }
   }
 }

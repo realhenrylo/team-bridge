@@ -19,12 +19,10 @@ function httpBase(): string {
 }
 
 export async function createRoom(name: string): Promise<RoomInfo> {
-  const creds = readCredentials();
   const res = await httpRequest(`${httpBase()}/rooms`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(creds.createToken ? { Authorization: `Bearer ${creds.createToken}` } : {}),
     },
     body: JSON.stringify({ name }),
   });
