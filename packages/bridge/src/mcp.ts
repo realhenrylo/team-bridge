@@ -11,25 +11,24 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { formatAgentLine, type AgentInfo, type InboundMessage } from '@team-bridge/protocol';
-import { DIRS, effective, ensureDirs, findProjectConfig, readCredentials, readState, statePath, writeState } from './config';
+import { DIRS, ensureDirs, readCredentials, openSession, saveSession, type SessionState } from './config';
 import { HubClient } from './hub-client';
 import { CodexListener, codexThread } from './hosts/codex';
 import { createRoom, roomInfo } from './room';
-import { writeProjectConfig } from './config';
 import { notifyDesktop } from './notify';
 import { Mailbox } from './mailbox';
 import { renderMessages } from './inbox';
-import { readHostSession, sessionRef } from './identity';
+import { readHostSession } from './identity';
 import { removeMeta, startLocalServer, writeMeta, type LocalRequest, type SockMeta } from './local';
 
 const log = (...a: unknown[]) => console.error('[team-bridge]', ...a); // stdout is the MCP channel
 
 export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   ensureDirs();
-  let cwd = process.cwd();
+  let cwd = host === 'claude' ? process.cwd() : '';
   let workspaceKnown = host === 'claude';
   const creds = readCredentials();
-  let project = workspaceKnown ? findProjectConfig(cwd) : null;
+  let saved: SessionState | undefined;
   let ref: string | undefined;
   const spool = path.join(DIRS.inbox, `${process.pid}.jsonl`);
   let sessionId: string | undefined;
@@ -43,32 +42,28 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   };
   writeMeta(meta);
 
-  const switches = () => effective(readState(), sessionId);
-  const canDeliver = () => { const s = switches(); return !!sessionId && !!project && s.enabled && !s.dnd; };
+  const switches = () => ({ enabled: saved?.enabled ?? true, dnd: saved?.dnd ?? false, visible: saved?.visible ?? true });
+  const canDeliver = () => { const s = switches(); return !!sessionId && !!saved?.room && s.enabled && !s.dnd; };
   const inbox = new Mailbox(canDeliver);
   const listener = host === 'codex' ? new CodexListener(inbox, () => sessionId?.slice('codex:'.length), canDeliver) : null;
   if (listener) setInterval(() => void listener.tick(), 500).unref();
 
   const inactiveReason = () =>
-    !workspaceKnown ? 'waiting for workspace from Codex hooks or team_control cwd'
-    : !project ? 'this project has no saved room binding, so it is not in any room (/team join <code>)'
-    : !sessionId ? 'waiting for session identity from the host; no temporary room identity has been registered'
-    : hub?.roomGone ? `room ${project.room} does not exist or has expired; create or join another (/team join <code>)`
+    !sessionId ? 'waiting for session identity from the host; no temporary room identity has been registered'
+    : !saved?.room ? 'this conversation has not joined a room (team join <code>)'
+    : hub?.roomGone ? `room ${saved!.room} does not exist or has expired; create or join another (/team join <code>)`
     : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
     : null;
 
   // ---- hub connection ----------------------------------------------------
-  // `/team join` / `/team create` save the project binding in plugin data while this process
-  // is already running, so watch for it instead of demanding a restart; and
-  // drop the connection if `/team leave` removes it.
   const connect = () => {
-    if (!project || !ref || !sessionId || hub) return;
-    const room = project.room;
+    if (!saved?.room || !ref || !sessionId || hub) return;
+    const room = saved.room;
     hub = new HubClient({
       hub: creds.hub, room, log,
       hello: {
         ref, user: creds.user, host: os.hostname(), cwd,
-        repo: path.basename(project.root), visible: switches().visible, status,
+        repo: cwd ? path.basename(cwd) : host, visible: switches().visible, status,
       },
     });
     const connection = hub;
@@ -100,17 +95,19 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   const bindSession = (id: string) => {
     if (id === sessionId) return;
     // Read/create the persistent identity before disturbing the current connection.
-    const nextRef = sessionRef(id);
+    const next = openSession(host === 'claude' ? `claude:${id}` : id);
     disconnect('session identity changed');
     if (sessionId) {
       inbox.clear();
       fs.writeFileSync(spool, '');
     }
     sessionId = id;
-    ref = nextRef;
+    saved = next;
+    ref = next.ref;
+    if (listener) listener.enabled = false;
     status = 'idle';
     writeMeta({ ...meta, sessionId });
-    if (project && switches().enabled) connect();
+    if (saved?.room && switches().enabled) connect();
   };
   const initialSession = host === 'claude' ? readHostSession() : undefined;
   if (initialSession) bindSession(initialSession);
@@ -125,25 +122,55 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
     } catch (error) { log('session identity unavailable:', String(error)); }
   }, 500).unref();
 
-  // react to /team edits (state.json) and to the room file appearing/disappearing
-  fs.watchFile(statePath(), { interval: 1000 }, () => {
-    const s = switches();
-    if (!s.enabled) disconnect('switched off');
-    else if (project && !hub) connect();
-    hub?.setVisible(s.visible);
-    inbox.refresh();
-  });
-  setInterval(() => {
-    const now = workspaceKnown ? findProjectConfig(cwd) : null;
-    if (now && (!project || now.room !== project.room)) {
-      disconnect(`room changed`);
-      project = now;
-      if (switches().enabled) connect();
-    } else if (!now && project) {
-      project = null;
-      disconnect('left room');
+  const applyState = (patch: Partial<Pick<SessionState, 'room' | 'enabled' | 'dnd' | 'visible'>>) => {
+    if (!saved) throw new Error('Waiting for host session identity');
+    const next = { ...saved, ...patch };
+    saveSession(next); // Persist before changing the live connection.
+    if (next.room !== saved.room) {
+      disconnect('room changed');
+      inbox.clear();
+      fs.writeFileSync(spool, '');
     }
-  }, 2000).unref();
+    saved = next;
+    if (!next.enabled || !next.room) disconnect('disconnected');
+    else connect();
+    hub?.setVisible(next.visible);
+    inbox.refresh();
+  };
+
+  // Serialize async room lookups with switches; reject commands if the host has
+  // moved to another conversation while the operation was awaiting the Hub.
+  let controls: Promise<unknown> = Promise.resolve();
+  const control = (id: string | undefined, action: string, room?: string, name?: string) => {
+    const run = async () => {
+      if (!['join', 'create', 'leave', 'on', 'off', 'dnd', 'visible', 'invisible', 'monitor-off'].includes(action)) throw new Error('Unknown team action');
+      if (!id || sessionId !== id) throw new Error('Conversation changed; retry in the current conversation');
+      let nextRoom: string | undefined;
+      if (action === 'join' || action === 'create') {
+        const info = action === 'create' ? await createRoom(name ?? '') : room ? await roomInfo(room) : null;
+        if (!info) throw new Error('Supply an existing room code to join');
+        nextRoom = info.code;
+      }
+      if (sessionId !== id) throw new Error('Conversation changed while contacting the Hub');
+      if (action === 'monitor-off') { if (listener) listener.enabled = false; }
+      else {
+        const patch = action === 'leave' ? { room: null }
+          : nextRoom ? { room: nextRoom, enabled: true, dnd: false }
+          : action === 'off' ? { enabled: false }
+          : action === 'dnd' ? { enabled: true, dnd: true }
+          : action === 'visible' ? { visible: true }
+          : action === 'invisible' ? { visible: false }
+          : { enabled: true, dnd: false };
+        applyState(patch);
+        if (listener && ['on', 'join', 'create'].includes(action)) listener.enabled = true;
+        if (listener && ['off', 'leave'].includes(action)) listener.enabled = false;
+      }
+      return { sessionId, room: saved?.room, ref, listening: listener?.enabled, ...switches() };
+    };
+    const result = controls.then(run);
+    controls = result.catch(() => {});
+    return result;
+  };
 
   // ---- local socket for hooks --------------------------------------------
   const drain = () => {
@@ -154,8 +181,11 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
 
   startLocalServer(process.pid, (req: LocalRequest) => {
     switch (req.op) {
+      case 'control':
+        if (host !== 'claude') return { error: 'Use Codex MCP tools with host-supplied identity' };
+        return control(req.sessionId, req.action, req.room, req.name);
       case 'info':
-        return { pid: process.pid, cwd, sessionId, listening: listener?.enabled, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
+        return { pid: process.pid, cwd, sessionId, room: saved?.room, listening: listener?.enabled, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
       case 'bind':
         if (host === 'codex') return { error: 'Codex identity must come from MCP request metadata' };
         if (sessionId && sessionId !== req.sessionId && readHostSession() !== req.sessionId) {
@@ -175,15 +205,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
         return inbox.wait(req.after ?? inbox.cursor, req.timeoutMs);
       case 'drain':
         return { messages: drain() };
-      case 'set': {
-        if (!sessionId) return { error: 'waiting for Claude session identity; use --global to change defaults' };
-        const state = readState();
-        if (sessionId) state.sessions[sessionId] = { ...state.sessions[sessionId], ...req.patch };
-        else Object.assign(state, req.patch);
-        writeState(state);
-        inbox.refresh();
-        return { ok: true, sessionId: sessionId ?? null, applied: req.patch };
-      }
+
     }
   });
 
@@ -193,7 +215,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   process.stdin.on('close', () => process.exit(0)); // Claude went away
 
   // ---- MCP tools ---------------------------------------------------------
-  const server = new McpServer({ name: 'team-bridge', version: '0.3.0' });
+  const server = new McpServer({ name: 'team-bridge', version: '0.4.0' });
   const fromHost = (requestMeta: Record<string, unknown> | undefined, workspace?: string) => {
     if (host !== 'codex') return;
     const id = `codex:${codexThread(requestMeta)}`;
@@ -206,7 +228,6 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
         disconnect('workspace changed');
         cwd = next;
         workspaceKnown = true;
-        project = findProjectConfig(cwd);
         meta.cwd = cwd;
       }
     }
@@ -231,35 +252,11 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
     });
     server.registerTool('team_control', {
       description: 'Manage this Codex thread’s team connection. on/join/create enable incoming-message notifications; monitor-off disables notifications only. Listening is off after MCP startup. dnd pauses delivery; off disconnects. Settings apply only to this thread.',
-      inputSchema: { action: z.enum(['on', 'off', 'dnd', 'visible', 'invisible', 'monitor-off', 'join', 'create']), room: z.string().optional(), name: z.string().optional(), cwd: z.string().optional().describe('Absolute current workspace path; needed if lifecycle hooks have not supplied it') },
+      inputSchema: { action: z.enum(['on', 'off', 'dnd', 'visible', 'invisible', 'monitor-off', 'join', 'create', 'leave']), room: z.string().optional(), name: z.string().optional(), cwd: z.string().optional().describe('Optional absolute workspace path for display metadata; never selects room membership') },
     }, async ({ action, room, name, cwd: workspace }, extra) => {
       fromHost(extra._meta, workspace);
-      if (!workspaceKnown) throw new Error('Workspace unavailable: trust the plugin hooks via /hooks, or supply cwd to team_control');
-      if (action === 'join' || action === 'create') {
-        const info = action === 'create' ? await createRoom(name ?? '') : room ? await roomInfo(room) : null;
-        if (!info) throw new Error('Supply an existing room code to join');
-        writeProjectConfig(cwd, info.code);
-        disconnect('room changed');
-        project = findProjectConfig(cwd);
-      }
-      if (action === 'monitor-off') listener!.enabled = false;
-      else {
-        const patch = action === 'off' ? { enabled: false }
-          : action === 'dnd' ? { enabled: true, dnd: true }
-          : action === 'visible' ? { visible: true }
-          : action === 'invisible' ? { visible: false }
-          : { enabled: true, dnd: false };
-        const state = readState();
-        state.sessions[sessionId!] = { ...state.sessions[sessionId!], ...patch };
-        writeState(state);
-        if (['on', 'join', 'create'].includes(action)) listener!.enabled = true;
-        if (action === 'off') listener!.enabled = false;
-        if (!switches().enabled) disconnect('switched off');
-        else connect();
-        hub?.setVisible(switches().visible);
-        inbox.refresh();
-      }
-      return { content: [{ type: 'text', text: `room: ${project?.room ?? '(none)'}; listening: ${listener!.enabled}; ${JSON.stringify(switches())}` }] };
+      const result = await control(sessionId, action, room, name);
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     });
   }
 
@@ -301,7 +298,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
       const others = agents.filter((a) => a.ref !== h.ref);
       const total = others.length + 1;
       const lines = [
-        `Room ${project?.room}: ${total} session${total === 1 ? '' : 's'} online (including you).`,
+        `Room ${saved?.room}: ${total} session${total === 1 ? '' : 's'} online (including you).`,
         `You are ${h.name} [${h.ref}]${me ? '' : ' (hidden from others)'} — colleagues message you by that name.`,
         '',
         others.length
@@ -355,7 +352,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
       const text = [
         `name: ${hub?.name || '(not registered)'} [${ref ?? 'pending'}]`,
         `session: ${sessionId ?? '(waiting for hook)'}`,
-        `hub: ${creds.hub}  room: ${project?.room ?? '(no room binding)'}`,
+        `hub: ${creds.hub}  room: ${saved?.room ?? '(no room binding)'}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
         `queued unread: ${inbox.size}`,

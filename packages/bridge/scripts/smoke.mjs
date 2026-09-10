@@ -37,7 +37,6 @@ console.log('--- room create + join');
 const created = execFileSync('node', [bin, 'room', 'create', '--name', 'smoke'], { env: process.env }).toString();
 console.log(created.trim());
 const code = /room created: ([A-Z0-9-]+)/.exec(created)[1];
-for (const d of ['repoA', 'repoB']) console.log(execFileSync('node', [bin, 'team', 'join', code], { cwd: `${S}/${d}`, env: process.env }).toString().trim());
 try {
   execFileSync('node', [bin, 'room', 'info', 'ZZZZ-ZZZZ'], { env: process.env, stdio: 'pipe' });
   console.log('bogus code was accepted — FAILED');
@@ -47,6 +46,7 @@ const A = await spawn(`${S}/repoA`);
 let B = await spawn(`${S}/repoB`);
 hook('SessionStart', `${S}/repoA`, 'sess-A');
 hook('SessionStart', `${S}/repoB`, 'sess-B');
+for (const d of ['repoA', 'repoB']) console.log(execFileSync('node', [bin, 'team', 'join', code], { cwd: `${S}/${d}`, env: envFor(`${S}/${d}`) }).toString().trim());
 // wait until both have registered with the hub (slow links / proxies can take a few seconds)
 async function untilConnected(c, label) {
   for (let i = 0; i < 40; i++) {

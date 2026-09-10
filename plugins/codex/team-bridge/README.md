@@ -18,3 +18,7 @@ in effect. Existing desktop/remote sessions have not been validated for automati
 wake-up; the first release targets the local CLI.
 
 [Full documentation](https://github.com/realhenrylo/team-bridge/blob/main/docs/codex.md)
+
+Room, identity and switches belong to the conversation, not its project directory.
+New/forked conversations must join explicitly; resume restores membership.
+`$team leave` leaves only this conversation’s room.

@@ -65,25 +65,3 @@ export function forgetHostSession(sessionId: string) {
     try { fs.unlinkSync(file); } catch { /* already removed */ }
   }
 }
-
-/** Atomically create one persistent ref per Claude conversation, including forks. */
-export function sessionRef(sessionId: string): string {
-  ensureDirs();
-  const file = path.join(DIRS.sessions, `${hash(sessionId)}.json`);
-  const existing = () => {
-    const record = readJson<{ sessionId: string; ref: string }>(file);
-    if (record?.sessionId !== sessionId || !/^[0-9a-f]{6}$/.test(record.ref)) {
-      throw new Error(`invalid saved session identity: ${file}`);
-    }
-    return record.ref;
-  };
-  if (fs.existsSync(file)) return existing();
-  const ref = crypto.randomBytes(3).toString('hex');
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  try {
-    fs.writeFileSync(tmp, JSON.stringify({ sessionId, ref }) + '\n', { mode: 0o600 });
-    try { fs.linkSync(tmp, file); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    return existing();
-  } finally { fs.unlinkSync(tmp); }
-}

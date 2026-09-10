@@ -5,7 +5,6 @@
  * line as a notification. It never consumes messages — team_read_messages or
  * a hook reads the full text. A cursor also covers mail that predates the watch.
  */
-import { findProjectConfig } from './config';
 import { findSessionBridge, localRequest, parentPids, type SockMeta, type WaitResult } from './local';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,7 +17,6 @@ export async function runMonitor() {
   let bridgePid: number | undefined;
 
   for (;;) {
-    if (!findProjectConfig(cwd)) { await sleep(3000); continue; }
     if (!meta) {
       meta = findSessionBridge(cwd, undefined, parents);
       if (!meta) { await sleep(1000); continue; }

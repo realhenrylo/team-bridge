@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -50,12 +50,14 @@ for (const identity of ['messaging-address', 'parent-chain']) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-delivery-')));
     const cwd = path.join(root, 'repo');
     fs.mkdirSync(cwd);
-    const projects = path.join(root, 'data', 'projects');
-    fs.mkdirSync(projects, { recursive: true });
-    const projectRoot = fs.realpathSync(cwd);
-    const key = createHash('sha256').update(projectRoot).digest('hex');
-    fs.writeFileSync(path.join(projects, `${key}.json`), JSON.stringify({ root: projectRoot, room: 'TEST-ROOM' }));
-    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    const http = createServer((req, res) => {
+      const code = req.method === 'POST' ? 'CREATED-ROOM' : decodeURIComponent(req.url.split('/').at(-1));
+      if (code === 'MISSING') { res.writeHead(404); res.end(); return; }
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ code, name: 'test' }));
+    });
+    const wss = new WebSocketServer({ server: http });
+    http.listen(0, '127.0.0.1');
     await once(wss, 'listening');
     const peers = new Map();
     const hellos = [];
@@ -98,6 +100,11 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       assert.match(await b.tool('team_status'), /waiting for hook/);
       assert.ok(!hellos.some((hello) => hello.user === 'b'), 'no transient identity before the first hook');
       await b.call('hook', { event: 'UserPromptSubmit' });
+      assert.match(await a.tool('team_status'), /no room binding/);
+      assert.match(await b.tool('team_status'), /no room binding/);
+      await a.call('switch', { command: 'join', args: ['TEST-ROOM'] });
+      assert.match(await b.tool('team_status'), /no room binding/, 'same cwd does not join B');
+      await b.call('switch', { command: 'join', args: ['TEST-ROOM'] });
       await until(() => peers.has('a') && peers.has('b'), 'bridges connected');
       await a.call('hook', { event: 'UserPromptSubmit' });
       const originalRef = hellos.find((hello) => hello.user === 'a').ref;
@@ -172,15 +179,28 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       // distinct identity and never inherits the previous conversation's mail.
       send('a', 'belongs-to-old-conversation');
       await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'old conversation inbox');
+      await a.call('switch', { command: 'join', args: ['OTHER-ROOM'] });
+      assert.match(await a.tool('team_status'), /room: OTHER-ROOM/);
+      assert.match(await b.tool('team_status'), /room: TEST-ROOM/);
+      assert.match(await a.tool('team_read_messages'), /No pending/);
+      await a.call('switch', { command: 'leave' });
+      assert.match(await a.tool('team_status'), /no room binding/);
+      assert.match(await b.tool('team_status'), /room: TEST-ROOM/);
+      await a.call('restart');
+      assert.match(await a.tool('team_status'), /no room binding/);
+      assert.ok((await a.tool('team_status')).includes(`[${originalRef}]`));
       const count = hellos.length;
       await a.call('hook', { event: 'SessionStart', input: { session_id: `${path.basename(root)}-fork` } });
-      await until(() => hellos.length > count, 'new conversation registered');
-      assert.notEqual(hellos.at(-1).ref, originalRef);
+      await until(async () => (await a.tool('team_status')).includes(`${path.basename(root)}-fork`), 'fork bound');
+      assert.equal(hellos.length, count, 'fork does not connect automatically');
+      assert.match(await a.tool('team_status'), /no room binding/);
+      assert.ok(!(await a.tool('team_status')).includes(`[${originalRef}]`));
       assert.match(await a.tool('team_read_messages'), /No pending/);
     } finally {
       await Promise.all([a.close(), b.close()]);
       for (const ws of wss.clients) ws.terminate();
       await new Promise((resolve) => wss.close(resolve));
+      await new Promise((resolve) => http.close(resolve));
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

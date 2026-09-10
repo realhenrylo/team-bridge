@@ -48,7 +48,7 @@ process.on('message', async ({ id, op, ...args }) => {
         input: JSON.stringify({ session_id: process.env.TEST_SESSION_ID, cwd: process.cwd(), tool_name: 'Read', ...args.input }),
         encoding: 'utf8', env: process.env,
       }); break;
-      case 'switch': result = execFileSync(process.execPath, [bin, 'team', args.command], { encoding: 'utf8', env: process.env }); break;
+      case 'switch': result = execFileSync(process.execPath, [bin, 'team', args.command, ...(args.args ?? [])], { encoding: 'utf8', env: process.env }); break;
       case 'monitor':
         monitor = spawn('/bin/sh', ['-c', '"$TEST_NODE" "$TEST_BRIDGE_BIN" monitor & wait'], {
           env: { ...process.env, TEST_NODE: process.execPath }, detached: true, stdio: ['ignore', 'pipe', 'pipe'],

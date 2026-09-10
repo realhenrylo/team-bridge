@@ -68,3 +68,17 @@ Codex CLI 0.153.4，macOS，本地 Cloudflare Hub，独立临时 `CODEX_HOME`。
 桌面端和远程 App Server 的自动唤醒尚未验收；首版支持本地 CLI。原有两条 Claude 自动回归继续通过。
 
 恢复后的第二轮测试在隔离配置中预先允许相关 MCP 工具：06:56:30.085 UTC 投递，06:56:41.906 UTC 收到审查回复，期间没有向接收方键入内容。该结果验证获准工具下的自动闭环，并不取消默认审批要求。
+
+
+## 0.4.0 conversation membership regression
+
+Room membership, identity and switches now use one record per host conversation.
+The local automated suites exercise real Claude CLI/IPC and Codex MCP control
+paths with two host processes in the same directory. Verified: new sessions do
+not autojoin; both can join one room; changing/leaving A does not change B;
+resume restores room/ref/switches; forks start without membership; changing cwd
+does not change membership; switching rooms clears pending mail; failed joins
+retain the previous room; concurrent join/leave requests commit in order.
+The suite continues to cover idle notifications, DND and MCP restart recovery.
+These checks use a local test Hub and a fake Codex queue executable; they do not
+claim a new interactive model acceptance run for this version.

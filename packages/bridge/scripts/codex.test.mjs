@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -18,15 +18,17 @@ const text = r => r.content.map(c => c.text ?? '').join('\n');
 test('Codex metadata identity, opt-in queue, DND, resume, and isolation', { timeout: 30000 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-codex-test-'));
   const queueLog = path.join(root, 'queue.jsonl');
-  const projects = path.join(root, 'data', 'projects');
-  fs.mkdirSync(projects, { recursive: true });
-  const projectRoot = fs.realpathSync(root);
-  const key = createHash('sha256').update(projectRoot).digest('hex');
-  fs.writeFileSync(path.join(projects, `${key}.json`), JSON.stringify({ root: projectRoot, room: 'TEST-ROOM' }));
   fs.mkdirSync(path.join(root, 'bin'));
   fs.writeFileSync(path.join(root, 'bin/codex'), `#!/usr/bin/env node\nconst fs=require('fs'); if(fs.existsSync(${JSON.stringify(path.join(root,'fail'))}))process.exit(1); fs.appendFileSync(${JSON.stringify(queueLog)},JSON.stringify(process.argv.slice(2))+'\\n');`, { mode: 0o755 });
   const notifications = () => fs.existsSync(queueLog) ? fs.readFileSync(queueLog, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
-  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const http = createServer((req, res) => {
+      const code = req.method === 'POST' ? 'CREATED-ROOM' : decodeURIComponent(req.url.split('/').at(-1));
+      if (code === 'MISSING') { res.writeHead(404); res.end(); return; }
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ code, name: 'test' }));
+    });
+    const wss = new WebSocketServer({ server: http });
+    http.listen(0, '127.0.0.1');
   await once(wss, 'listening');
   const peers = new Map();
   wss.on('connection', ws => ws.on('message', raw => {
@@ -50,6 +52,13 @@ test('Codex metadata identity, opt-in queue, DND, resume, and isolation', { time
     assert.equal(peers.size,0);
     await a.call('team_codex_event',{event:'SessionStart'});
     await b.call('team_codex_event',{event:'SessionStart'});
+    assert.match(await a.call('team_status'), /no room binding/);
+    assert.match(await b.call('team_status'), /no room binding/);
+    assert.equal(peers.size, 0, 'new conversations never autojoin');
+    await a.call('team_control', { action: 'join', room: 'TEST-ROOM' });
+    assert.match(await b.call('team_status'), /no room binding/, 'same workspace is independent');
+    await b.call('team_control', { action: 'join', room: 'TEST-ROOM' });
+    await a.call('team_control', { action: 'monitor-off' });
     await until(()=>peers.size===2);
     const status=await a.call('team_status');
     const ref=status.match(/\[([a-f0-9]{6})\]/)[1];
@@ -90,15 +99,47 @@ test('Codex metadata identity, opt-in queue, DND, resume, and isolation', { time
     await until(()=>peers.has(ref));
     const fork=await start('thread-fork');
     assert.ok(!(await fork.call('team_status')).includes(`[${ref}]`));
+    assert.match(await fork.call('team_status'), /no room binding/);
+    assert.match(await a.call('team_status'), /room: TEST-ROOM/);
+    const moved = path.join(root, 'new-workspace'); fs.mkdirSync(moved);
+    await a.call('team_codex_event', { event: 'SessionStart', cwd: moved });
+    assert.match(await a.call('team_status'), /room: TEST-ROOM/, 'cwd is display metadata only');
+    await a.call('team_codex_event', { event: 'SessionStart', cwd: root });
+    await until(async () => /connected: true/.test(await a.call('team_status')));
     // Notification failure must be visible, retain mail, and not crash the bridge.
     fs.writeFileSync(path.join(root,'fail'),'');
     send(ref,'failed-notification');
     await until(async()=>(await a.call('team_status')).includes('notification failed'));
     assert.match(await a.call('team_read_messages'),/failed-notification/);
+    await a.call('team_control', { action: 'dnd' });
+    send(ref, 'old-room-only');
+    await until(async () => /queued unread: 1/.test(await a.call('team_status')));
+    const failed = await a.c.callTool({ name: 'team_control', arguments: { action: 'join', room: 'MISSING', cwd: root }, _meta: { threadId: 'thread-a' } });
+    assert.equal(failed.isError, true);
+    assert.match(await a.call('team_status'), /room: TEST-ROOM/);
+    await a.call('team_control', { action: 'create' });
+    assert.match(await a.call('team_status'), /room: CREATED-ROOM/);
+    assert.match(await b.call('team_status'), /room: TEST-ROOM/);
+    assert.match(await a.call('team_read_messages'), /No pending/, 'old room inbox cleared');
+    await a.call('team_control', { action: 'leave' });
+    assert.match(await a.call('team_status'), /no room binding/);
+    assert.match(await b.call('team_status'), /room: TEST-ROOM/);
+    await a.c.close(); a = await start('thread-a');
+    assert.match(await a.call('team_status'), /no room binding/, 'leave survives resume');
+    assert.ok((await a.call('team_status')).includes(`[${ref}]`), 'leave preserves identity');
+    await Promise.all([
+      a.call('team_control', { action: 'join', room: 'TEST-ROOM' }),
+      a.call('team_control', { action: 'leave' }),
+    ]);
+    assert.match(await a.call('team_status'), /no room binding/, 'concurrent controls commit in request order');
+    assert.match(await b.call('team_status'), /room: TEST-ROOM/);
+
+
   } finally {
     await Promise.all(clients.map(c=>c.close()));
     for(const ws of wss.clients)ws.terminate();
     await new Promise(r=>wss.close(r));
+    await new Promise(r=>http.close(r));
     fs.rmSync(root,{recursive:true,force:true});
   }
 });

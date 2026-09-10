@@ -27,14 +27,14 @@ export interface WaitResult {
 }
 
 export type LocalRequest =
+  | { op: 'control'; sessionId: string; action: 'join' | 'create' | 'leave' | 'on' | 'off' | 'dnd' | 'visible' | 'invisible'; room?: string; name?: string }
   | { op: 'info' }
   | { op: 'bind'; sessionId: string }
   | { op: 'status'; status: 'busy' | 'idle' | 'shell' }
   | { op: 'drain' }
   | { op: 'peek' }
   /** long-poll: resolves when a new message arrives (preview only, nothing consumed) or after timeoutMs */
-  | { op: 'wait'; timeoutMs: number; after?: number }
-  | { op: 'set'; patch: { enabled?: boolean; dnd?: boolean; visible?: boolean } };
+  | { op: 'wait'; timeoutMs: number; after?: number };
 
 export function sockPath(pid: number) {
   return path.join(DIRS.sock, `${pid}.sock`);

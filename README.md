@@ -1,6 +1,6 @@
 # team-bridge
 
-Cross-machine messaging for teams using Claude Code and Codex. Sessions meet in **rooms**: anyone creates a room, gets a code like `4BCD-2QQF`, and colleagues join their repos to it. Each room is one Cloudflare Durable Object — it hibernates for free between events and is destroyed after `ROOM_IDLE_DAYS` (default 7) without activity.
+Cross-machine messaging for teams using Claude Code and Codex. Sessions meet in **rooms**: anyone creates a room, gets a code like `4BCD-2QQF`, and colleagues join their conversations to it. Each room is one Cloudflare Durable Object — it hibernates for free between events and is destroyed after `ROOM_IDLE_DAYS` (default 7) without activity.
 
 For Codex installation and usage, see [the Codex guide](docs/codex.md).
 
@@ -73,8 +73,8 @@ Or make it automatic for a project: add to that repo's `.claude/settings.json` a
 ## Release an update
 
 ```sh
-scripts/release.sh 0.3.1     # build both packages + bump both plugin manifests
-git add -A && git commit -m "release plugin 0.3.1" && git push
+scripts/release.sh 0.4.0     # build both packages + bump both plugin manifests
+git add -A && git commit -m "release plugin 0.4.0" && git push
 ```
 
 Because `plugin.json` declares a `version`, users only see an update when that string changes; `/plugin update team-bridge@team-bridge-marketplace` (or auto-update, once per session) installs it. The previous version's cache dir lingers ~14 days so sessions still running on it keep working; `${CLAUDE_PLUGIN_DATA}` is untouched by updates. CI (`.github/workflows/plugin-bundle.yml`) fails if the committed bundle doesn't match a fresh build.
@@ -107,10 +107,10 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 - Sender's MCP process -> WebSocket -> TeamRoom DO -> recipient's MCP process (or SQLite queue if offline).
 - Recipient's MCP process spools the message; the next hook (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) drains it via a local unix socket and injects it as `<team-message>` context. Hooks never touch the network.
 - `Stop` with unread mail returns `decision: block` so Claude handles it before going idle.
-- The plugin **monitor** is off at session startup. The first invocation of `/team` (including `/team on`, `join`, `create`, or `status`) starts it for that session. In an already joined repo, run `/team on` in each new session to enable idle notifications. Repeated `/team` invocations do not start additional monitors.
+- The plugin **monitor** is off at session startup. The first invocation of `/team` (including `/team on`, `join`, `create`, or `status`) starts it for that session. After resuming a joined conversation, run `/team on` to enable idle notifications. New conversations must join a room explicitly. Repeated `/team` invocations do not start additional monitors.
 - Once started, the monitor (`team-bridge monitor`, see `plugins/claude/team-bridge/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
 - Monitors, hooks, and session switches use the session's messaging socket identity or its parent process chain, never the closest start time in the same directory. A monitor stays alive while its bridge restarts. Cursor-based waits include existing unread mail and notify when DND is lifted.
-- Room identity is persisted per Claude `session_id`. Exiting and resuming the same conversation, or restarting its MCP server, keeps its `ref`; a new or forked conversation gets a separate identity. The bridge waits for the session hook before registering. Identity records live in the plugin data directory and survive plugin updates. Upgrading from 0.2.6 or earlier assigns a new identity once because older refs were not saved.
+- Room identity is persisted per Claude `session_id`. Exiting and resuming the same conversation, or restarting its MCP server, keeps its `ref`; a new or forked conversation gets a separate identity. The bridge waits for the session hook before registering. Identity records live in the plugin data directory and survive plugin updates. Room membership and switches are also saved per conversation. New/forked conversations start without a room.
 - Task requests use the session's existing user instructions and tool permissions; the plugin does not add a second blanket confirmation step. Results or blockers are sent back to the original sender. A `delivered` receipt means the bridge received the message, not that Claude has started or finished the task.
 
 Plugin monitors require a Claude Code host where Monitor is available. If no monitor is running, messages remain available to `team_read_messages` and the next hook; desktop notifications alone do not start a model turn.
@@ -131,18 +131,25 @@ For the interactive acceptance check, start two Claude Code sessions with the lo
 
 | What | Where |
 |---|---|
-| `state.json` (switches), `credentials.json` (fallback), inbox spool | `${CLAUDE_PLUGIN_DATA}` = `~/.claude/plugins/data/<plugin-id>/` — survives updates, removed on uninstall |
+| `credentials.json` (fallback), inbox spool | `${CLAUDE_PLUGIN_DATA}` = `~/.claude/plugins/data/<plugin-id>/` — survives updates, removed on uninstall |
 | user name, create token | plugin `userConfig` → `~/.claude/settings.json` / Keychain, exported as `CLAUDE_PLUGIN_OPTION_*`; hub URL is built in (`DEFAULT_HUB`, override `TEAM_BRIDGE_HUB`) |
 | unix sockets + meta | `os.tmpdir()/team-bridge-<uid>/` (short paths; per-process, ephemeral) |
-| Project → room bindings | `<plugin-data>/projects/<path-hash>.json`, keyed by the canonical project path |
+| Conversation identity, room and switches | `<plugin-data>/conversations/<session-hash>.json`, keyed by host + conversation ID |
 | the bundled CLI | `${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs` — read-only, replaced on update |
 
-Project bindings are read only from plugin data. `leave` deletes the binding.
-Claude and Codex keep separate project bindings; join the same room once in each host.
+Each conversation owns its room membership. `leave` clears its room while retaining
+its identity and switches. Working directories are display metadata only. Two
+conversations in the same directory can join the same or different rooms independently.
 
 ## Switches
 
-`/team on | off | dnd | visible | invisible | status [--global]` — stored in `~/.team-bridge/state.json` (global) with per-session overrides. `/team create` / `/team join <code>` / `/team leave` manage the project binding in the plugin data directory.
+`/team on | off | dnd | visible | invisible | status` only affects the current conversation.
+`/team create`, `/team join <code>` and `/team leave` also affect only that conversation.
+There are no global overrides or project bindings. Resume restores the saved room, ref
+and switches; the incoming notification listener still starts off.
+
+Version 0.4.0 uses the conversation record exclusively. Earlier project/identity
+configuration is not imported; join once again after upgrading.
 
 ## Room lifecycle
 

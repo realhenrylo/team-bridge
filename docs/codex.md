@@ -43,20 +43,22 @@ bridge received the message, not that the task completed.
 
 ## Identity and storage
 
-Project room bindings are saved in `<plugin-data>/projects/<path-hash>.json`,
-keyed by the canonical project path. Create/join never write into the project.
-Claude and Codex keep their own bindings; join the same room once in each host.
-
+Each conversation has one private record at
+`<plugin-data>/conversations/<session-hash>.json`, containing its identity, room
+and switches. The key is the host plus conversation ID; the project path is only
+display metadata. Two conversations in one directory can join different rooms.
+`$team leave` clears only the current conversation's room and pending mail,
+retaining its identity. Resume restores the room and switches; new/forked
+conversations start without a room. No project configuration is read or written.
 
 The MCP request's host-supplied `_meta.threadId` selects the identity. It is not
-accepted as a model-controlled tool argument. Saved identity keys are prefixed
-with `codex:` so Claude and Codex conversations cannot share an identity by ID
-collision. New/forked threads get separate identities; resume restores the ref when the first lifecycle hook or MCP request binds the conversation.
+accepted as a model-controlled tool argument. Record keys are namespaced with `codex:` or `claude:` so the two hosts
+cannot share a record by ID collision. New/forked threads get separate identities; resume restores the ref when the first lifecycle hook or MCP request binds the conversation.
 
 The MCP launcher starts from the installed plugin root. Lifecycle hooks supply
 the actual project cwd; the bridge never treats its plugin directory as the
 user's workspace. Without trusted hooks, `team_control` accepts an explicit
-absolute `cwd`; the other tools still bind identity from request metadata.
+absolute `cwd`; identity and room membership always come from request metadata, even without cwd.
 
 Data uses `TEAM_BRIDGE_HOME`, then `PLUGIN_DATA` if supplied by the host, otherwise
 `$CODEX_HOME/team-bridge` (`~/.codex/team-bridge` by default). The fallback survives

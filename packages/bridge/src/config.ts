@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -17,8 +17,7 @@ export const DIRS = {
   // unix socket paths are capped at ~104 bytes on macOS, so keep these short
   sock: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`),
   inbox: path.join(HOME, 'inbox'),
-  sessions: path.join(HOME, 'sessions'),
-  projects: path.join(HOME, 'projects'),
+  sessions: path.join(HOME, 'conversations'),
   bindings: path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`, 'bindings'),
 };
 
@@ -60,93 +59,51 @@ export function writeCredentials(c: Credentials) {
   fs.writeFileSync(CRED_PATH, JSON.stringify(c, null, 2) + '\n', { mode: 0o600 });
 }
 
-// ---- switches: edited by `/team ...` -------------------------------------
+// ---- one persistent record per host conversation -------------------------
 
-export interface SessionOverride {
-  enabled?: boolean;
-  dnd?: boolean;
-  visible?: boolean;
-}
-
-export interface State {
+export interface SessionState {
+  sessionId: string; // Namespaced host ID: claude:<session_id> or codex:<threadId>.
+  ref: string;
+  room: string | null;
   enabled: boolean;
-  dnd: boolean; // stay listed, queue mail, but don't inject it into the conversation
-  visible: boolean; // appear in other people's list
-  acceptFrom: string[]; // ["*"] or user names
-  sessions: Record<string, SessionOverride>;
+  dnd: boolean;
+  visible: boolean;
 }
 
-const STATE_PATH = path.join(HOME, 'state.json');
-const DEFAULT_STATE: State = { enabled: true, dnd: false, visible: true, acceptFrom: ['*'], sessions: {} };
-
-export function readState(): State {
-  return { ...DEFAULT_STATE, ...(readJson<Partial<State>>(STATE_PATH) ?? {}) };
+export function sessionPath(id: string) {
+  if (!id) throw new Error('Host session identity is required');
+  return path.join(DIRS.sessions, `${createHash('sha256').update(id).digest('hex')}.json`);
 }
 
-export function writeState(s: State) {
+export function openSession(id: string): SessionState {
   ensureDirs();
-  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2) + '\n');
+  const file = sessionPath(id);
+  if (!fs.existsSync(file)) {
+    const state: SessionState = { sessionId: id, ref: randomBytes(3).toString('hex'), room: null, enabled: true, dnd: false, visible: true };
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(state) + '\n', { mode: 0o600 });
+      try { fs.linkSync(tmp, file); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+    } finally { fs.unlinkSync(tmp); }
+  }
+  const state = readJson<SessionState>(file);
+  if (!state || state.sessionId !== id || !/^[0-9a-f]{6}$/.test(state.ref) ||
+      !(state.room === null || typeof state.room === 'string' && state.room.length > 0) ||
+      !['enabled', 'dnd', 'visible'].every(k => typeof state[k as keyof SessionState] === 'boolean')) {
+    throw new Error(`Invalid session record: ${file}`);
+  }
+  return state;
 }
 
-export function statePath() {
-  return STATE_PATH;
-}
-
-/** Effective switches for one session (per-session override wins). */
-export function effective(state: State, sessionId: string | undefined) {
-  const o = (sessionId && state.sessions[sessionId]) || {};
-  return {
-    enabled: o.enabled ?? state.enabled,
-    dnd: o.dnd ?? state.dnd,
-    visible: o.visible ?? state.visible,
-    acceptFrom: state.acceptFrom,
-  };
-}
-
-// ---- project room bindings: private plugin data, keyed by canonical path ----
-
-export interface ProjectConfig {
-  room: string;
-  root: string;
-}
-
-function canonicalProject(dir: string) {
-  try { return fs.realpathSync(dir); } catch { return path.resolve(dir); }
-}
-
-export function projectConfigPath(dir: string) {
-  const key = createHash('sha256').update(canonicalProject(dir)).digest('hex');
-  return path.join(DIRS.projects, `${key}.json`);
-}
-
-export function writeProjectConfig(dir: string, room: string) {
-  ensureDirs();
-  const root = canonicalProject(dir);
-  const file = projectConfigPath(root);
+/** The owning MCP process serializes mutations; CLI commands go through its IPC. */
+export function saveSession(state: SessionState) {
+  const file = sessionPath(state.sessionId);
   const tmp = `${file}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify({ root, room }, null, 2) + '\n', { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
     fs.renameSync(tmp, file);
-  } finally {
-    try { fs.unlinkSync(tmp); } catch { /* already renamed */ }
-  }
-}
-
-export function findProjectConfig(cwd: string): ProjectConfig | null {
-  let dir = canonicalProject(cwd);
-  for (;;) {
-    const cfg = readJson<{ room?: string }>(projectConfigPath(dir));
-    if (typeof cfg?.room === 'string' && cfg.room) return { room: cfg.room, root: dir };
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-export function leaveProjectConfig(dir: string) {
-  try { fs.unlinkSync(projectConfigPath(dir)); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
+  } finally { try { fs.unlinkSync(tmp); } catch { /* renamed */ } }
 }
 
 export function readJson<T>(p: string): T | null {
