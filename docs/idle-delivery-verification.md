@@ -41,3 +41,7 @@
 回归测试分别覆盖会话地址和父进程链两种绑定方式：同目录隔离、SessionStart 早于 MCP、启动积压、长轮询、DND 恢复、Hook/工具共享消费、MCP 重启重连，以及旧 Monitor 在插件重载后不会对同一条未读消息循环输出。
 
 本次未实现跨进程重启的未读消息恢复、持久任务回执或 Channels 适配器。Monitor 仍依赖宿主对该功能的支持。部署新版后需重启 Claude 会话，才能替换已运行的 Monitor。
+
+## 0.2.6 按需启动验收
+
+在同一版本 Claude Code 的真实交互会话验证：进入会话后没有 Monitor；调用 `/team-bridge:team on` 后出现一个 Monitor。触发条件使用完整技能名 `on-skill-invoke:team-bridge:team`，仅写 `team` 无法触发。已有房间中的新会话也需主动调用一次技能来启用空闲唤醒。

@@ -2,6 +2,8 @@
 
 Cross-machine `ListAgents` / `SendMessage` for a team of Claude Code users. Sessions meet in **rooms**: anyone creates a room, gets a code like `4BCD-2QQF`, and colleagues join their repos to it. Each room is one Cloudflare Durable Object — it hibernates for free between events and is destroyed after `ROOM_IDLE_DAYS` (default 7) without activity.
 
+The full plugin command is `/team-bridge:team`; `/team` below is shorthand. If Claude reports `/team` as unknown, use the full name, for example `/team-bridge:team on`.
+
 ```
 packages/protocol   zod schemas shared by hub and client
 packages/hub        Cloudflare Worker + TeamRoom Durable Object (registry, routing, offline inbox)
@@ -91,11 +93,14 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 - Sender's MCP process -> WebSocket -> TeamRoom DO -> recipient's MCP process (or SQLite queue if offline).
 - Recipient's MCP process spools the message; the next hook (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) drains it via a local unix socket and injects it as `<team-message>` context. Hooks never touch the network.
 - `Stop` with unread mail returns `decision: block` so Claude handles it before going idle.
-- A plugin **monitor** (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
+- The plugin **monitor** is off at session startup. The first invocation of `/team` (including `/team on`, `join`, `create`, or `status`) starts it for that session. In an already joined repo, run `/team on` in each new session to enable idle notifications. Repeated `/team` invocations do not start additional monitors.
+- Once started, the monitor (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
 - Monitors, hooks, and session switches use the session's messaging socket identity or its parent process chain, never the closest start time in the same directory. A monitor stays alive while its bridge restarts. Cursor-based waits include existing unread mail and notify when DND is lifted.
 - Task requests use the session's existing user instructions and tool permissions; the plugin does not add a second blanket confirmation step. Results or blockers are sent back to the original sender. A `delivered` receipt means the bridge received the message, not that Claude has started or finished the task.
 
 Plugin monitors require a Claude Code host where Monitor is available. If no monitor is running, messages remain available to `team_read_messages` and the next hook; desktop notifications alone do not start a model turn.
+
+`/team off` disconnects messaging and `/team dnd` pauses delivery. A monitor that has already started waits silently in those modes; it exits with the Claude session. The startup default controls the monitor, not the MCP connection to an already joined room.
 
 ### Delivery regression tests
 

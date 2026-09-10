@@ -1,6 +1,6 @@
 {
   "name": "team-bridge",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Connect this Claude Code session to a team room: list colleagues' sessions and message them (team_list_agents / team_send_message).",
   "author": {
     "name": "henrylo"

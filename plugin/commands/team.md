@@ -10,6 +10,8 @@ Run this command and show the user its output verbatim:
 node "${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs" team $ARGUMENTS
 ```
 
+The first invocation of this skill starts this session's team inbox monitor. It is off at session startup; in an already joined repo, `/team on` enables idle notifications for the new session.
+
 Meaning:
 - `create [--name x]` — open a new room on the hub and join this repo to it; share the printed code
 - `join <code>` — put this repo in an existing room (writes `.team-bridge.json`; connects within seconds)

@@ -1,6 +1,6 @@
 /**
  * `team-bridge monitor` — declared in plugin monitors.json, so Claude Code
- * starts it with every session. It long-polls this session's bridge process
+ * starts it on first use of /team-bridge:team. It long-polls this session's bridge process
  * and prints one line per incoming message; Claude Code delivers each stdout
  * line as a notification. It never consumes messages — team_read_messages or
  * a hook reads the full text. A cursor also covers mail that predates the watch.
