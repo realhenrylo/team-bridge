@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -17,7 +18,11 @@ const text = r => r.content.map(c => c.text ?? '').join('\n');
 test('Codex metadata identity, opt-in queue, DND, resume, and isolation', { timeout: 30000 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-codex-test-'));
   const queueLog = path.join(root, 'queue.jsonl');
-  fs.writeFileSync(path.join(root, '.team-bridge.json'), '{"room":"TEST-ROOM"}');
+  const projects = path.join(root, 'data', 'projects');
+  fs.mkdirSync(projects, { recursive: true });
+  const projectRoot = fs.realpathSync(root);
+  const key = createHash('sha256').update(projectRoot).digest('hex');
+  fs.writeFileSync(path.join(projects, `${key}.json`), JSON.stringify({ root: projectRoot, room: 'TEST-ROOM' }));
   fs.mkdirSync(path.join(root, 'bin'));
   fs.writeFileSync(path.join(root, 'bin/codex'), `#!/usr/bin/env node\nconst fs=require('fs'); if(fs.existsSync(${JSON.stringify(path.join(root,'fail'))}))process.exit(1); fs.appendFileSync(${JSON.stringify(queueLog)},JSON.stringify(process.argv.slice(2))+'\\n');`, { mode: 0o755 });
   const notifications = () => fs.existsSync(queueLog) ? fs.readFileSync(queueLog, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];

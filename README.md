@@ -137,10 +137,8 @@ For the interactive acceptance check, start two Claude Code sessions with the lo
 | Project → room bindings | `<plugin-data>/projects/<path-hash>.json`, keyed by the canonical project path |
 | the bundled CLI | `${CLAUDE_PLUGIN_ROOT}/dist/team-bridge.cjs` — read-only, replaced on update |
 
-Existing `.team-bridge.json` files are imported into plugin data on first use.
-The plugin leaves those files untouched; after migration they can be deleted.
-`leave` prevents the old file from rejoining the room. Claude and Codex keep
-separate project bindings; join the same room once in each host.
+Project bindings are read only from plugin data. `leave` deletes the binding.
+Claude and Codex keep separate project bindings; join the same room once in each host.
 
 ## Switches
 

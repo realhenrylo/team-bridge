@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
-test('private project bindings, migration, leave, and canonical paths', async () => {
+test('private project bindings, leave, and canonical paths', async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-projects-')));
   const previous = process.env.TEAM_BRIDGE_HOME;
   process.env.TEAM_BRIDGE_HOME = path.join(root, 'data');
@@ -27,18 +27,15 @@ test('private project bindings, migration, leave, and canonical paths', async ()
     config.writeProjectConfig(alias, 'NEXT-ROOM');
     assert.equal(config.findProjectConfig(repo).room, 'NEXT-ROOM');
     assert.equal(fs.statSync(config.projectConfigPath(repo)).mode & 0o777, 0o600);
-    const legacy = path.join(other, '.team-bridge.json');
-    fs.writeFileSync(legacy, '{"room":"OLD-ROOM"}');
-    assert.equal(config.findProjectConfig(other).room, 'OLD-ROOM');
-    assert.ok(fs.existsSync(config.projectConfigPath(other)), 'legacy binding imported');
-    fs.writeFileSync(legacy, '{"room":"STALE-ROOM"}');
-    assert.equal(config.findProjectConfig(other).room, 'OLD-ROOM', 'private data wins');
+    config.writeProjectConfig(other, 'OTHER-ROOM');
+    assert.equal(config.findProjectConfig(other).room, 'OTHER-ROOM');
+    assert.equal(config.findProjectConfig(repo).room, 'NEXT-ROOM');
     config.leaveProjectConfig(other);
-    assert.equal(config.findProjectConfig(other), null, 'leave blocks legacy re-import');
-    assert.equal(fs.readFileSync(legacy, 'utf8'), '{"room":"STALE-ROOM"}', 'leave never modifies the repo');
+    assert.equal(config.findProjectConfig(other), null);
+    assert.equal(fs.existsSync(config.projectConfigPath(other)), false, 'leave deletes the binding');
+    config.leaveProjectConfig(other); // Idempotent cleanup.
+    assert.deepEqual(fs.readdirSync(other), [], 'binding lifecycle never modifies the repo');
     config.writeProjectConfig(other, 'REJOINED');
-    assert.equal(config.findProjectConfig(other).room, 'REJOINED');
-    fs.unlinkSync(legacy);
     assert.equal(config.findProjectConfig(other).room, 'REJOINED');
   } finally {
     if (previous === undefined) delete process.env.TEAM_BRIDGE_HOME;

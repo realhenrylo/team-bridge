@@ -1,6 +1,6 @@
 {
   "name": "team-bridge",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Connect Codex and Claude Code sessions through shared team rooms.",
   "author": {
     "name": "henrylo"

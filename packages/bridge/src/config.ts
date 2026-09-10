@@ -105,8 +105,6 @@ export function effective(state: State, sessionId: string | undefined) {
 
 // ---- project room bindings: private plugin data, keyed by canonical path ----
 
-const LEGACY_PROJECT_FILE = '.team-bridge.json';
-
 export interface ProjectConfig {
   room: string;
   root: string;
@@ -121,7 +119,7 @@ export function projectConfigPath(dir: string) {
   return path.join(DIRS.projects, `${key}.json`);
 }
 
-function saveProject(dir: string, room: string | null) {
+export function writeProjectConfig(dir: string, room: string) {
   ensureDirs();
   const root = canonicalProject(dir);
   const file = projectConfigPath(root);
@@ -137,26 +135,18 @@ function saveProject(dir: string, room: string | null) {
 export function findProjectConfig(cwd: string): ProjectConfig | null {
   let dir = canonicalProject(cwd);
   for (;;) {
-    const cfg = readJson<{ room?: string | null }>(projectConfigPath(dir));
-    if (cfg?.room === null) return null; // Explicit leave also blocks legacy re-import.
+    const cfg = readJson<{ room?: string }>(projectConfigPath(dir));
     if (typeof cfg?.room === 'string' && cfg.room) return { room: cfg.room, root: dir };
-    const legacy = readJson<{ room?: string }>(path.join(dir, LEGACY_PROJECT_FILE));
-    if (typeof legacy?.room === 'string' && legacy.room) {
-      saveProject(dir, legacy.room);
-      return { room: legacy.room, root: dir };
-    }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
 }
 
-export function writeProjectConfig(dir: string, room: string) {
-  saveProject(dir, room);
-}
-
 export function leaveProjectConfig(dir: string) {
-  saveProject(dir, null);
+  try { fs.unlinkSync(projectConfigPath(dir)); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
 }
 
 export function readJson<T>(p: string): T | null {

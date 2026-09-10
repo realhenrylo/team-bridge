@@ -12202,7 +12202,6 @@ function effective(state, sessionId) {
     acceptFrom: state.acceptFrom
   };
 }
-var LEGACY_PROJECT_FILE = ".team-bridge.json";
 function canonicalProject(dir) {
   try {
     return import_node_fs.default.realpathSync(dir);
@@ -12214,7 +12213,7 @@ function projectConfigPath(dir) {
   const key = (0, import_node_crypto.createHash)("sha256").update(canonicalProject(dir)).digest("hex");
   return import_node_path.default.join(DIRS.projects, `${key}.json`);
 }
-function saveProject(dir, room) {
+function writeProjectConfig(dir, room) {
   ensureDirs();
   const root = canonicalProject(dir);
   const file = projectConfigPath(root);
@@ -12233,23 +12232,18 @@ function findProjectConfig(cwd) {
   let dir = canonicalProject(cwd);
   for (; ; ) {
     const cfg = readJson(projectConfigPath(dir));
-    if (cfg?.room === null) return null;
     if (typeof cfg?.room === "string" && cfg.room) return { room: cfg.room, root: dir };
-    const legacy = readJson(import_node_path.default.join(dir, LEGACY_PROJECT_FILE));
-    if (typeof legacy?.room === "string" && legacy.room) {
-      saveProject(dir, legacy.room);
-      return { room: legacy.room, root: dir };
-    }
     const parent = import_node_path.default.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
 }
-function writeProjectConfig(dir, room) {
-  saveProject(dir, room);
-}
 function leaveProjectConfig(dir) {
-  saveProject(dir, null);
+  try {
+    import_node_fs.default.unlinkSync(projectConfigPath(dir));
+  } catch (error2) {
+    if (error2.code !== "ENOENT") throw error2;
+  }
 }
 function readJson(p) {
   try {
