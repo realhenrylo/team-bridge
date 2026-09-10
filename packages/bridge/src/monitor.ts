@@ -2,50 +2,41 @@
  * `team-bridge monitor` — declared in plugin monitors.json, so Claude Code
  * starts it with every session. It long-polls this session's bridge process
  * and prints one line per incoming message; Claude Code delivers each stdout
- * line as a notification. It never consumes messages — the hooks still drain
- * the full text into the conversation — it only makes an idle session notice.
+ * line as a notification. It never consumes messages — team_read_messages or
+ * a hook reads the full text. A cursor also covers mail that predates the watch.
  */
 import { findProjectConfig } from './config';
-import { listMeta, localRequest, type SockMeta } from './local';
+import { findSessionBridge, localRequest, parentPids, type SockMeta, type WaitResult } from './local';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function runMonitor() {
   const cwd = process.cwd();
-  const startedAt = Date.now();
-
-  // not in a room yet? `/team join` may put us in one later — wait for it
-  while (!findProjectConfig(cwd)) await sleep(3000);
-
+  const parents = parentPids();
   let meta: SockMeta | null = null;
-  for (;;) {
-    meta = pick(cwd, startedAt);
-    if (meta) break;
-    if (Date.now() - startedAt > 10 * 60_000) return; // bridge never came up (plugin off?)
-    await sleep(1000);
-  }
+  let cursor = 0;
+  let bridgePid: number | undefined;
 
   for (;;) {
-    const r = await localRequest<{ message: { from: string; preview: string } | null; pending: number }>(
-      meta.sock, { op: 'wait', timeoutMs: 55_000 }, 60_000,
+    if (!findProjectConfig(cwd)) { await sleep(3000); continue; }
+    if (!meta) {
+      meta = findSessionBridge(cwd, undefined, parents);
+      if (!meta) { await sleep(1000); continue; }
+      if (bridgePid !== meta.pid) { cursor = 0; bridgePid = meta.pid; }
+    }
+    const r = await localRequest<WaitResult>(
+      meta.sock, { op: 'wait', after: cursor, timeoutMs: 55_000 }, 60_000,
     ).catch(() => null);
     if (r === null) {
-      // bridge process gone: try to re-find it briefly, else exit
-      const next = pick(cwd, Date.now());
-      if (!next) return;
-      meta = next;
+      // Plugin reloads can replace the MCP process. Stay alive and rebind only to our session.
+      meta = null;
+      await sleep(1000);
       continue;
     }
     if (r.message) {
       const n = r.pending > 1 ? ` (${r.pending} unread)` : '';
-      process.stdout.write(`team-bridge: new message from ${r.message.from}${n}: ${r.message.preview} — full text arrives at the next tool round or Stop; if this session is idle, start a turn to handle it.\n`);
+      process.stdout.write(`team-bridge: new message from ${r.message.from}${n}: ${r.message.preview} — call team_read_messages now to read and handle pending messages. If already read through a hook, do not handle them twice.\n`);
+      cursor = r.cursor ?? cursor;
     }
   }
-}
-
-/** Bridge process in this cwd, preferring the one started closest to us. */
-function pick(cwd: string, around: number): SockMeta | null {
-  return listMeta()
-    .filter((m) => m.cwd === cwd)
-    .sort((a, b) => Math.abs(a.startedAt - around) - Math.abs(b.startedAt - around))[0] ?? null;
 }

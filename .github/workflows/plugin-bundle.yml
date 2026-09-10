@@ -11,5 +11,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
+      - run: pnpm --filter @team-bridge/bridge test
       - name: committed bundle must match a fresh build
         run: git diff --exit-code -- plugin/dist/team-bridge.cjs

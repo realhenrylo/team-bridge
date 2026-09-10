@@ -63,7 +63,7 @@ git add -A && git commit -m "release plugin 0.3.0" && git push
 
 Because `plugin.json` declares a `version`, users only see an update when that string changes; `/plugin update team-bridge@team-bridge-marketplace` (or auto-update, once per session) installs it. The previous version's cache dir lingers ~14 days so sessions still running on it keep working; `${CLAUDE_PLUGIN_DATA}` is untouched by updates. CI (`.github/workflows/plugin-bundle.yml`) fails if the committed bundle doesn't match a fresh build.
 
-Local development without installing: `claude --plugin-dir ./plugin`, then `/reload-plugins` after `pnpm build`.
+Local development without installing: `claude --plugin-dir ./plugin`. After `pnpm build`, `/reload-plugins` refreshes MCP servers and hooks; restart the Claude session to load changes to the monitor process.
 
 ## Per colleague
 
@@ -91,7 +91,17 @@ Set `ROOM_IDLE_DAYS=0.0001` in `packages/hub/.dev.vars` and run with `EXPIRY=1` 
 - Sender's MCP process -> WebSocket -> TeamRoom DO -> recipient's MCP process (or SQLite queue if offline).
 - Recipient's MCP process spools the message; the next hook (`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`) drains it via a local unix socket and injects it as `<team-message>` context. Hooks never touch the network.
 - `Stop` with unread mail returns `decision: block` so Claude handles it before going idle.
-- A plugin **monitor** (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message; Claude Code delivers stdout lines as notifications, which is how an idle session learns there is mail. It never consumes messages. A desktop notification is sent as well.
+- A plugin **monitor** (`team-bridge monitor`, see `plugin/monitors/monitors.json`) long-polls the bridge and prints one line per incoming message. Claude Code delivers the notification to the session; Claude calls `team_read_messages` to read the complete messages and handle task requests. Hooks and this tool share one inbox, so a message read by either path is not returned again. A desktop notification is sent as well.
+- Monitors, hooks, and session switches use the session's messaging socket identity or its parent process chain, never the closest start time in the same directory. A monitor stays alive while its bridge restarts. Cursor-based waits include existing unread mail and notify when DND is lifted.
+- Task requests use the session's existing user instructions and tool permissions; the plugin does not add a second blanket confirmation step. Results or blockers are sent back to the original sender. A `delivered` receipt means the bridge received the message, not that Claude has started or finished the task.
+
+Plugin monitors require a Claude Code host where Monitor is available. If no monitor is running, messages remain available to `team_read_messages` and the next hook; desktop notifications alone do not start a model turn.
+
+### Delivery regression tests
+
+Run `pnpm build` then `pnpm --filter @team-bridge/bridge test`. The tests use a local in-process WebSocket hub and separate host processes in one directory, covering exact binding, parent-chain fallback, startup backlog, DND resume, hook/tool consumption, and monitor recovery after an MCP restart. They do not call a model.
+
+For the interactive acceptance check, start two Claude Code sessions with the local plugin in one test directory and join a test room. Let the receiver finish a turn. Ask the sender to delegate a small read-only review and return to idle. Without typing anything in the receiver, verify it reads the file and replies, and that the sender handles the reply automatically.
 
 ## Proxies
 

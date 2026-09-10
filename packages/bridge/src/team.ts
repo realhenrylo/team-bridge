@@ -1,13 +1,12 @@
 /**
  * `team-bridge team <on|off|dnd|visible|invisible|status> [--global]`
- * Backs the /team slash command. Without --global it targets the bridge
- * process(es) running in the current directory, which apply the change
- * to their own session id; with --global it edits the top-level state.
+ * Backs the /team slash command. Without --global it targets this Claude
+ * session's bridge; with --global it edits the top-level default state.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { findProjectConfig, PROJECT_FILE, readState, writeProjectConfig, writeState } from './config';
-import { listMeta, localRequest } from './local';
+import { findSessionBridge, listMeta, localRequest } from './local';
 import { createRoom, roomInfo } from './room';
 
 export async function runTeam(args: string[]) {
@@ -74,13 +73,11 @@ export async function runTeam(args: string[]) {
     return;
   }
 
-  const targets = listMeta().filter((m) => m.cwd === cwd);
-  if (!targets.length) {
-    console.log(`no bridge process running in ${cwd}; use --global to change the default`);
+  const target = findSessionBridge(cwd);
+  if (!target) {
+    console.log(`no unambiguous bridge for this session in ${cwd}; run this command inside its Claude session, or use --global to change the default`);
     return;
   }
-  for (const m of targets) {
-    const r = await localRequest(m.sock, { op: 'set', patch }).catch((e) => ({ error: String(e) }));
-    console.log(`${m.sessionId ? `session ${m.sessionId.slice(0, 8)}` : `pid ${m.pid}`}: ${JSON.stringify(r)}`);
-  }
+  const r = await localRequest(target.sock, { op: 'set', patch }).catch((e) => ({ error: String(e) }));
+  console.log(`${target.sessionId ? `session ${target.sessionId.slice(0, 8)}` : `pid ${target.pid}`}: ${JSON.stringify(r)}`);
 }

@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import { effective, findProjectConfig, readState } from './config';
 import { renderMessages } from './inbox';
-import { listMeta, localRequest, type SockMeta } from './local';
+import { findSessionBridge, localRequest } from './local';
 
 interface HookInput {
   session_id: string;
@@ -25,13 +25,17 @@ export async function runHook(event: string) {
   const sw = effective(readState(), input.session_id);
   if (!sw.enabled) return;
 
-  const meta = await resolveSocket(input.session_id, cwd);
+  const meta = findSessionBridge(cwd, input.session_id);
   if (!meta) return;
   const call = <T = any>(req: Parameters<typeof localRequest>[1]) => localRequest<T>(meta.sock, req).catch(() => null);
+  // SessionStart can run before the MCP server exists. Bind on the first later hook too.
+  if (!meta.sessionId) {
+    const bound = await call<{ ok?: boolean }>({ op: 'bind', sessionId: input.session_id });
+    if (!bound?.ok) return;
+  }
 
   switch (event) {
     case 'SessionStart': {
-      await call({ op: 'bind', sessionId: input.session_id });
       await call({ op: 'status', status: 'busy' });
       const info = await call<{ name: string | null; inactive: string | null }>({ op: 'info' });
       const r = await call<{ messages: any[] }>({ op: 'drain' });
@@ -85,23 +89,4 @@ function readInput(): HookInput | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Find the bridge process for this session. Hooks and the MCP process are
- * both children of the same `claude`, but the hook usually runs via a shell,
- * so ppid matching is a fast path, not a guarantee. Fallbacks: a socket
- * already bound to this session id, then the newest unbound socket in the
- * same cwd (which SessionStart then binds).
- */
-async function resolveSocket(sessionId: string, cwd: string): Promise<SockMeta | null> {
-  const metas = listMeta();
-  const bound = metas.find((m) => m.sessionId === sessionId);
-  if (bound) return bound;
-  const byPpid = metas.find((m) => m.ppid === process.ppid && m.cwd === cwd && !m.sessionId);
-  if (byPpid) return byPpid;
-  const sameCwd = metas
-    .filter((m) => m.cwd === cwd && !m.sessionId)
-    .sort((a, b) => b.startedAt - a.startedAt);
-  return sameCwd[0] ?? null;
 }

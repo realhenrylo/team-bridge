@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { DIRS, ensureDirs } from './config';
 
 export interface SockMeta {
@@ -14,7 +15,15 @@ export interface SockMeta {
   cwd: string;
   startedAt: number;
   sessionId?: string;
+  /** Claude exports this non-secret address to its children. Never store the token. */
+  messagingSocket?: string;
   sock: string;
+}
+
+export interface WaitResult {
+  message: { id: string; from: string; preview: string } | null;
+  cursor: number;
+  pending: number;
 }
 
 export type LocalRequest =
@@ -24,7 +33,7 @@ export type LocalRequest =
   | { op: 'drain' }
   | { op: 'peek' }
   /** long-poll: resolves when a new message arrives (preview only, nothing consumed) or after timeoutMs */
-  | { op: 'wait'; timeoutMs: number }
+  | { op: 'wait'; timeoutMs: number; after?: number }
   | { op: 'set'; patch: { enabled?: boolean; dnd?: boolean; visible?: boolean } };
 
 export function sockPath(pid: number) {
@@ -56,6 +65,48 @@ export function listMeta(): SockMeta[] {
     } catch { /* partial write, skip */ }
   }
   return out;
+}
+
+/** Walk through shell wrappers without confusing sibling Claude sessions. */
+export function parentPids(): number[] {
+  const out = [process.ppid];
+  try {
+    const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], {
+      encoding: 'utf8', timeout: 1000, maxBuffer: 1024 * 1024,
+    });
+    const parents = new Map(rows.trim().split('\n').map((row) => {
+      const [pid, ppid] = row.trim().split(/\s+/).map(Number);
+      return [pid!, ppid!] as const;
+    }));
+    while (out.length < 32) {
+      const next = parents.get(out[out.length - 1]!);
+      if (!next || next <= 1 || out.includes(next)) break;
+      out.push(next);
+    }
+  } catch { /* direct parent still works without ps */ }
+  return out.filter((pid) => pid > 1);
+}
+
+/** Exact session/socket first, then a shared parent. Never guess from cwd/time. */
+export function findSessionBridge(cwd: string, sessionId?: string, parents = parentPids()): SockMeta | null {
+  try { cwd = fs.realpathSync(cwd); } catch { /* deleted directory */ }
+  const metas = listMeta();
+  if (sessionId) {
+    const bound = metas.filter((m) => m.sessionId === sessionId);
+    if (bound.length) return bound.length === 1 ? bound[0]! : null;
+  }
+  const socket = process.env.CLAUDE_CODE_MESSAGING_SOCKET;
+  if (socket) {
+    const exact = metas.filter((m) => m.messagingSocket === socket && (!sessionId || !m.sessionId || m.sessionId === sessionId));
+    if (exact.length) return exact.length === 1 ? exact[0]! : null;
+  }
+  const eligible = metas.filter((m) => m.cwd === cwd && (!sessionId || !m.sessionId || m.sessionId === sessionId)
+    && (!socket || !m.messagingSocket || m.messagingSocket === socket));
+  for (const pid of parents) {
+    const siblings = eligible.filter((m) => m.ppid === pid);
+    if (siblings.length) return siblings.length === 1 ? siblings[0]! : null;
+  }
+  return null;
 }
 
 export function isAlive(pid: number) {

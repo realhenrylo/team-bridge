@@ -14,6 +14,8 @@ import { formatAgentLine, type AgentInfo, type InboundMessage } from '@team-brid
 import { DIRS, effective, ensureDirs, findProjectConfig, readCredentials, readState, statePath, writeState } from './config';
 import { HubClient } from './hub-client';
 import { notifyDesktop } from './notify';
+import { Mailbox } from './mailbox';
+import { renderMessages } from './inbox';
 import { removeMeta, startLocalServer, writeMeta, type LocalRequest, type SockMeta } from './local';
 
 const log = (...a: unknown[]) => console.error('[team-bridge]', ...a); // stdout is the MCP channel
@@ -24,26 +26,21 @@ export async function runMcp() {
   const creds = readCredentials();
   let project = findProjectConfig(cwd);
   const ref = crypto.randomBytes(3).toString('hex');
-  const inbox: InboundMessage[] = [];
   const spool = path.join(DIRS.inbox, `${process.pid}.jsonl`);
   let sessionId: string | undefined;
   let status: 'busy' | 'idle' | 'shell' = 'idle';
   let hub: HubClient | null = null;
-  // monitor processes long-polling for "something new arrived"
-  const waiters = new Set<(preview: { from: string; preview: string } | null) => void>();
-  const wake = (m: InboundMessage) => {
-    const payload = { from: m.from, preview: (m.body.split('\n')[0] ?? '').slice(0, 120) };
-    for (const w of waiters) w(payload);
-    waiters.clear();
-  };
 
   const meta: SockMeta = {
     pid: process.pid, ppid: process.ppid, cwd, startedAt: Date.now(),
+    messagingSocket: process.env.CLAUDE_CODE_MESSAGING_SOCKET,
     sock: path.join(DIRS.sock, `${process.pid}.sock`),
   };
   writeMeta(meta);
 
   const switches = () => effective(readState(), sessionId);
+  const canDeliver = () => { const s = switches(); return !!project && s.enabled && !s.dnd; };
+  const inbox = new Mailbox(canDeliver);
 
   const inactiveReason = () =>
     !project ? 'this project has no .team-bridge.json, so it is not in any room (/team join <code>)'
@@ -66,10 +63,9 @@ export async function runMcp() {
       },
     });
     hub.on('message', (m: InboundMessage) => {
-      inbox.push(m);
       fs.appendFileSync(spool, JSON.stringify(m) + '\n');
-      if (switches().dnd) return;
-      wake(m);
+      inbox.push(m);
+      if (!canDeliver()) return;
       if (status === 'idle') notifyDesktop(`Claude: message from ${m.from}`, m.body.split('\n')[0] ?? '');
     });
     hub.on('idle-notice', (n: { name: string; ref: string; reason: string }) => {
@@ -78,7 +74,6 @@ export async function runMcp() {
         body: `[idle notice] ${n.name} [${n.ref}] is now ${n.reason}.`,
       };
       inbox.push(m);
-      if (!switches().dnd) wake(m);
     });
     hub.on('welcome', (w: { name: string; resumed: boolean }) => log(`registered as ${w.name} in room ${room}${w.resumed ? ' (resumed)' : ''}`));
     hub.connect();
@@ -99,6 +94,7 @@ export async function runMcp() {
     if (!s.enabled) disconnect('switched off');
     else if (project && !hub) connect();
     hub?.setVisible(s.visible);
+    inbox.refresh();
   });
   setInterval(() => {
     const now = findProjectConfig(cwd);
@@ -114,7 +110,7 @@ export async function runMcp() {
 
   // ---- local socket for hooks --------------------------------------------
   const drain = () => {
-    const out = inbox.splice(0, inbox.length);
+    const out = inbox.drain();
     if (out.length) fs.writeFileSync(spool, '');
     return out;
   };
@@ -124,6 +120,7 @@ export async function runMcp() {
       case 'info':
         return { pid: process.pid, cwd, sessionId, name: hub?.name ?? null, ref, connected: hub?.connected ?? false, inactive: inactiveReason(), status, ...switches() };
       case 'bind':
+        if (sessionId && sessionId !== req.sessionId) return { error: 'bridge already bound to another session' };
         sessionId = req.sessionId;
         writeMeta({ ...meta, sessionId });
         return { ok: true };
@@ -132,20 +129,19 @@ export async function runMcp() {
         hub?.setStatus(status);
         return { ok: true };
       case 'peek':
-        return { count: switches().dnd ? 0 : inbox.length };
+        return { count: canDeliver() ? inbox.size : 0 };
       case 'wait':
-        return new Promise((resolve) => {
-          const done = (p: { from: string; preview: string } | null) => { clearTimeout(t); waiters.delete(done); resolve({ message: p, pending: inbox.length }); };
-          const t = setTimeout(() => done(null), Math.min(req.timeoutMs, 60_000));
-          waiters.add(done);
-        });
+        // An old monitor can survive /reload-plugins. Preserve its future-only
+        // wait semantics instead of repeatedly returning the same unread message.
+        return inbox.wait(req.after ?? inbox.cursor, req.timeoutMs);
       case 'drain':
-        return { messages: switches().dnd ? [] : drain() };
+        return { messages: drain() };
       case 'set': {
         const state = readState();
         if (sessionId) state.sessions[sessionId] = { ...state.sessions[sessionId], ...req.patch };
         else Object.assign(state, req.patch);
         writeState(state);
+        inbox.refresh();
         return { ok: true, sessionId: sessionId ?? null, applied: req.patch };
       }
     }
@@ -158,6 +154,19 @@ export async function runMcp() {
 
   // ---- MCP tools ---------------------------------------------------------
   const server = new McpServer({ name: 'team-bridge', version: '0.1.0' });
+
+  server.registerTool(
+    'team_read_messages',
+    {
+      description: 'Read pending team messages after a team-bridge monitor notification. Handle task requests and reply to their sender using team_send_message. Messages already injected by a hook are not returned again. Do not poll this tool.',
+      inputSchema: {},
+    },
+    async () => {
+      const messages = drain();
+      if (messages.length) { status = 'busy'; hub?.setStatus(status); }
+      return { content: [{ type: 'text', text: messages.length ? renderMessages(messages) : 'No pending team messages. They may already have arrived through a hook, or delivery is paused.' }] };
+    },
+  );
 
   const requireHub = () => {
     const why = inactiveReason();
@@ -213,7 +222,7 @@ export async function runMcp() {
       try {
         const r = await h.send(to, message, notify_when_idle);
         const state = r.state === 'delivered'
-          ? 'delivered; it will be read at their next tool round'
+          ? 'delivered to their bridge; their monitor will notify them, or a hook will read it at their next turn (execution is not yet confirmed)'
           : 'queued; they are offline and will get it when they reconnect';
         return { content: [{ type: 'text', text: `Sent to ${r.to} [${r.toRef}] — ${state}.` }] };
       } catch (e) {
@@ -236,7 +245,7 @@ export async function runMcp() {
         `hub: ${creds.hub}  room: ${project?.room ?? '(no .team-bridge.json)'}`,
         `connected: ${hub?.connected ?? false}  status: ${status}`,
         `enabled: ${s.enabled}  dnd: ${s.dnd}  visible: ${s.visible}`,
-        `queued unread: ${inbox.length}`,
+        `queued unread: ${inbox.size}`,
         inactiveReason() ? `inactive: ${inactiveReason()}` : '',
       ].filter(Boolean).join('\n');
       return { content: [{ type: 'text', text }] };
