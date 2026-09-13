@@ -1,4 +1,4 @@
-import type { InboundMessage } from '@team-bridge/protocol';
+import type { InboundMessage } from '@agent-room/protocol';
 import type { WaitResult } from './local';
 
 /** A cursor belongs to one bridge process. Reading mail and notifying are separate. */

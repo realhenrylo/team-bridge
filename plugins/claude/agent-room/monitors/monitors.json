@@ -1,0 +1,8 @@
+[
+  {
+    "name": "team-inbox",
+    "when": "on-skill-invoke:agent-room:agent-room",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/agent-room.cjs\" monitor",
+    "description": "Incoming messages from colleagues' Claude Code sessions"
+  }
+]

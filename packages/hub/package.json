@@ -1,5 +1,5 @@
 {
-  "name": "@team-bridge/hub",
+  "name": "@agent-room/hub",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@team-bridge/protocol": "workspace:*",
+    "@agent-room/protocol": "workspace:*",
     "hono": "^4.6.0",
     "zod": "^3.23.8"
   },

@@ -1,8 +1,12 @@
 node_modules
 dist/
-!plugins/claude/team-bridge/dist/
-plugins/claude/team-bridge/dist/*.map
+!plugins/claude/agent-room/dist/
+plugins/claude/agent-room/dist/*.map
 .wrangler
 .dev.vars
-!plugins/codex/team-bridge/dist/
-plugins/codex/team-bridge/dist/*.map
+!plugins/codex/agent-room/dist/
+plugins/codex/agent-room/dist/*.map
+
+# Authored static website assets
+!website/dist/
+!website/dist/**

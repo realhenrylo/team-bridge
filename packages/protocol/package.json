@@ -1,5 +1,5 @@
 {
-  "name": "@team-bridge/protocol",
+  "name": "@agent-room/protocol",
   "version": "0.1.0",
   "private": true,
   "type": "module",

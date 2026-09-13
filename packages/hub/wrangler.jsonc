@@ -1,5 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Legacy deployment ID: preserve the existing Durable Object namespace and room data.
   "name": "team-bridge-hub",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",

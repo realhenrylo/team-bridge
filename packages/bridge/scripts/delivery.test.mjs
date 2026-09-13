@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 
-const bin = path.resolve(import.meta.dirname, '../../../plugins/claude/team-bridge/dist/team-bridge.cjs');
+const bin = path.resolve(import.meta.dirname, '../../../plugins/claude/agent-room/dist/agent-room.cjs');
 const fixture = path.join(import.meta.dirname, 'fixtures/session.mjs');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const text = (result) => result.content.map((item) => item.text ?? '').join('\n');
@@ -82,8 +82,8 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       } }));
     }
     const env = {
-      ...process.env, TEST_BRIDGE_BIN: bin, TEAM_BRIDGE_HOME: path.join(root, 'data'),
-      TEAM_BRIDGE_HUB: `ws://127.0.0.1:${wss.address().port}`,
+      ...process.env, TEST_BRIDGE_BIN: bin, AGENT_ROOM_HOME: path.join(root, 'data'),
+      AGENT_ROOM_HUB: `ws://127.0.0.1:${wss.address().port}`,
     };
     delete env.CLAUDE_PLUGIN_OPTION_HUB;
     delete env.CLAUDE_CODE_MESSAGING_SOCKET;
@@ -97,13 +97,13 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       // SessionStart before MCP exists; a later hook must bind the correct process.
       assert.equal(await a.call('hook', { event: 'SessionStart' }), '');
       await a.call('start'); await b.call('start');
-      assert.match(await b.tool('team_status'), /waiting for hook/);
+      assert.match(await b.tool('agent_room_status'), /waiting for hook/);
       assert.ok(!hellos.some((hello) => hello.user === 'b'), 'no transient identity before the first hook');
       await b.call('hook', { event: 'UserPromptSubmit' });
-      assert.match(await a.tool('team_status'), /no room binding/);
-      assert.match(await b.tool('team_status'), /no room binding/);
+      assert.match(await a.tool('agent_room_status'), /no room binding/);
+      assert.match(await b.tool('agent_room_status'), /no room binding/);
       await a.call('switch', { command: 'join', args: ['TEST-ROOM'] });
-      assert.match(await b.tool('team_status'), /no room binding/, 'same cwd does not join B');
+      assert.match(await b.tool('agent_room_status'), /no room binding/, 'same cwd does not join B');
       await b.call('switch', { command: 'join', args: ['TEST-ROOM'] });
       await until(() => peers.has('a') && peers.has('b'), 'bridges connected');
       await a.call('hook', { event: 'UserPromptSubmit' });
@@ -112,14 +112,14 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       assert.notEqual(originalRef, hellos.find((hello) => hello.user === 'b').ref);
 
       send('a', 'arrived-before-monitor\ncomplete body');
-      await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'message queued');
+      await until(async () => /queued unread: 1/.test(await a.tool('agent_room_status')), 'message queued');
       assert.equal((await a.call('legacyWait')).message, null, 'old monitors must not spin on unread mail after reload');
       // Start A's monitor after B's bridge: cwd/time matching used to choose B.
       await a.call('monitor'); await b.call('monitor');
       await until(() => a.state.output.includes('arrived-before-monitor'), 'backlog notification');
       assert.equal(b.state.output, '');
-      assert.match(await a.tool('team_read_messages'), /complete body/);
-      assert.match(await a.tool('team_read_messages'), /No pending/);
+      assert.match(await a.tool('agent_room_read_messages'), /complete body/);
+      assert.match(await a.tool('agent_room_read_messages'), /No pending/);
       assert.equal(await a.call('hook', { event: 'PostToolUse' }), '');
 
       // A long poll must survive idle time, notify only once, and never cross sessions.
@@ -127,18 +127,18 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       await until(() => b.state.output.includes('only-b'), 'live notification');
       assert.ok(!a.state.output.includes('only-b'));
       assert.match(await b.call('hook', { event: 'PostToolUse' }), /only-b/);
-      assert.match(await b.tool('team_read_messages'), /No pending/);
+      assert.match(await b.tool('agent_room_read_messages'), /No pending/);
 
       await a.call('switch', { command: 'dnd' });
-      assert.match(await a.tool('team_status'), /dnd: true/);
-      assert.match(await b.tool('team_status'), /dnd: false/);
+      assert.match(await a.tool('agent_room_status'), /dnd: true/);
+      assert.match(await b.tool('agent_room_status'), /dnd: false/);
       send('a', 'during-dnd');
-      await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'DND queue');
-      assert.match(await a.tool('team_read_messages'), /No pending/);
+      await until(async () => /queued unread: 1/.test(await a.tool('agent_room_status')), 'DND queue');
+      assert.match(await a.tool('agent_room_read_messages'), /No pending/);
       assert.ok(!a.state.output.includes('during-dnd'));
       await a.call('switch', { command: 'on' });
       await until(() => a.state.output.includes('during-dnd'), 'DND resume wake');
-      assert.match(await a.tool('team_read_messages'), /during-dnd/);
+      assert.match(await a.tool('agent_room_read_messages'), /during-dnd/);
 
       // Keep the monitor alive across replacement of its MCP process.
       peers.delete('a');
@@ -148,7 +148,7 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       await a.call('hook', { event: 'UserPromptSubmit' });
       send('a', 'after-restart');
       await until(() => a.state.output.includes('after-restart'), 'monitor reattached');
-      assert.match(await a.tool('team_read_messages'), /after-restart/);
+      assert.match(await a.tool('agent_room_read_messages'), /after-restart/);
       assert.ok(!b.state.output.includes('after-restart'));
       await sleep(150);
       for (const message of ['arrived-before-monitor', 'during-dnd', 'after-restart']) {
@@ -169,33 +169,33 @@ for (const identity of ['messaging-address', 'parent-chain']) {
       await a.call('start');
       await until(() => peers.has('a'), 'resumed conversation connected');
       assert.equal(hellos.filter((hello) => hello.user === 'a').at(-1).ref, originalRef);
-      await until(async () => (await a.tool('team_status')).includes(`name: ${originalName}`), 'same name after resume');
-      assert.match(await a.tool('team_status'), /dnd: true/, 'per-session switches restored before reconnect');
-      assert.match(await a.tool('team_read_messages'), /No pending/);
+      await until(async () => (await a.tool('agent_room_status')).includes(`name: ${originalName}`), 'same name after resume');
+      assert.match(await a.tool('agent_room_status'), /dnd: true/, 'per-session switches restored before reconnect');
+      assert.match(await a.tool('agent_room_read_messages'), /No pending/);
       await a.call('switch', { command: 'on' });
-      assert.match(await a.tool('team_read_messages'), /queued-for-old-ref/);
+      assert.match(await a.tool('agent_room_read_messages'), /queued-for-old-ref/);
 
       // /clear or changing the active conversation in the same host uses a
       // distinct identity and never inherits the previous conversation's mail.
       send('a', 'belongs-to-old-conversation');
-      await until(async () => /queued unread: 1/.test(await a.tool('team_status')), 'old conversation inbox');
+      await until(async () => /queued unread: 1/.test(await a.tool('agent_room_status')), 'old conversation inbox');
       await a.call('switch', { command: 'join', args: ['OTHER-ROOM'] });
-      assert.match(await a.tool('team_status'), /room: OTHER-ROOM/);
-      assert.match(await b.tool('team_status'), /room: TEST-ROOM/);
-      assert.match(await a.tool('team_read_messages'), /No pending/);
+      assert.match(await a.tool('agent_room_status'), /room: OTHER-ROOM/);
+      assert.match(await b.tool('agent_room_status'), /room: TEST-ROOM/);
+      assert.match(await a.tool('agent_room_read_messages'), /No pending/);
       await a.call('switch', { command: 'leave' });
-      assert.match(await a.tool('team_status'), /no room binding/);
-      assert.match(await b.tool('team_status'), /room: TEST-ROOM/);
+      assert.match(await a.tool('agent_room_status'), /no room binding/);
+      assert.match(await b.tool('agent_room_status'), /room: TEST-ROOM/);
       await a.call('restart');
-      assert.match(await a.tool('team_status'), /no room binding/);
-      assert.ok((await a.tool('team_status')).includes(`[${originalRef}]`));
+      assert.match(await a.tool('agent_room_status'), /no room binding/);
+      assert.ok((await a.tool('agent_room_status')).includes(`[${originalRef}]`));
       const count = hellos.length;
       await a.call('hook', { event: 'SessionStart', input: { session_id: `${path.basename(root)}-fork` } });
-      await until(async () => (await a.tool('team_status')).includes(`${path.basename(root)}-fork`), 'fork bound');
+      await until(async () => (await a.tool('agent_room_status')).includes(`${path.basename(root)}-fork`), 'fork bound');
       assert.equal(hellos.length, count, 'fork does not connect automatically');
-      assert.match(await a.tool('team_status'), /no room binding/);
-      assert.ok(!(await a.tool('team_status')).includes(`[${originalRef}]`));
-      assert.match(await a.tool('team_read_messages'), /No pending/);
+      assert.match(await a.tool('agent_room_status'), /no room binding/);
+      assert.ok(!(await a.tool('agent_room_status')).includes(`[${originalRef}]`));
+      assert.match(await a.tool('agent_room_read_messages'), /No pending/);
     } finally {
       await Promise.all([a.close(), b.close()]);
       for (const ws of wss.clients) ws.terminate();

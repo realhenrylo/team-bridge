@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import type { Mailbox } from '../mailbox';
 
 /** Only a notification is queued. Colleague content remains MCP tool output. */
-export const CODEX_NOTIFICATION = 'team-bridge has pending colleague messages. Call team_read_messages to read them and handle any task within your existing instructions and permissions. If already read, do not process them twice.';
+export const CODEX_NOTIFICATION = 'agent-room has pending colleague messages. Call agent_room_read_messages to read them and handle any task within your existing instructions and permissions. If already read, do not process them twice.';
 
 export function codexThread(meta: Record<string, unknown> | undefined): string {
   const id = meta?.threadId;

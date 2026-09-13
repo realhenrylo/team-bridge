@@ -23,7 +23,7 @@ async function main() {
     case 'monitor':
       return runMonitor();
     default:
-      console.error('usage: team-bridge <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | configure ...>');
+      console.error('usage: agent-room <mcp | hook <Event> | monitor | team <cmd> | room <create|info> | configure ...>');
       process.exitCode = 1;
   }
 }

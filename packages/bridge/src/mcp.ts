@@ -1,6 +1,6 @@
 /**
- * `team-bridge mcp` — the long-lived process Claude Code spawns per session.
- * Exposes team_* tools over stdio, owns the WebSocket to the hub, and serves
+ * `agent-room mcp` — the long-lived process Claude Code spawns per session.
+ * Exposes agent_room_* tools over stdio, owns the WebSocket to the hub, and serves
  * the local unix socket that hooks use to drain mail / report status.
  */
 import crypto from 'node:crypto';
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { formatAgentLine, type AgentInfo, type InboundMessage } from '@team-bridge/protocol';
+import { formatAgentLine, type AgentInfo, type InboundMessage } from '@agent-room/protocol';
 import { DIRS, ensureDirs, readCredentials, openSession, saveSession, type SessionState } from './config';
 import { HubClient } from './hub-client';
 import { CodexListener, codexThread } from './hosts/codex';
@@ -21,7 +21,7 @@ import { renderMessages } from './inbox';
 import { readHostSession } from './identity';
 import { removeMeta, startLocalServer, writeMeta, type LocalRequest, type SockMeta } from './local';
 
-const log = (...a: unknown[]) => console.error('[team-bridge]', ...a); // stdout is the MCP channel
+const log = (...a: unknown[]) => console.error('[agent-room]', ...a); // stdout is the MCP channel
 
 export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   ensureDirs();
@@ -51,8 +51,8 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   const inactiveReason = () =>
     !sessionId ? 'waiting for session identity from the host; no temporary room identity has been registered'
     : !saved?.room ? 'this conversation has not joined a room (team join <code>)'
-    : hub?.roomGone ? `room ${saved!.room} does not exist or has expired; create or join another (/team join <code>)`
-    : !switches().enabled ? 'team bridge is switched off for this session (/team on to enable)'
+    : hub?.roomGone ? `room ${saved!.room} does not exist or has expired; create or join another (/agent-room join <code>)`
+    : !switches().enabled ? 'agent-room is switched off for this session (/agent-room on to enable)'
     : null;
 
   // ---- hub connection ----------------------------------------------------
@@ -215,7 +215,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   process.stdin.on('close', () => process.exit(0)); // Claude went away
 
   // ---- MCP tools ---------------------------------------------------------
-  const server = new McpServer({ name: 'team-bridge', version: '0.4.0' });
+  const server = new McpServer({ name: 'agent-room', version: '0.4.0' });
   const fromHost = (requestMeta: Record<string, unknown> | undefined, workspace?: string) => {
     if (host !== 'codex') return;
     const id = `codex:${codexThread(requestMeta)}`;
@@ -237,7 +237,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   };
 
   if (host === 'codex') {
-    server.registerTool('team_codex_event', {
+    server.registerTool('agent_room_codex_event', {
       description: 'Internal Codex lifecycle hook. Do not call manually.',
       inputSchema: { event: z.enum(['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Interrupt']), cwd: z.string() },
     }, async ({ event, cwd: workspace }, extra) => {
@@ -250,7 +250,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
         : { hookSpecificOutput: { hookEventName: event, additionalContext: renderMessages(messages) } };
       return { content: [{ type: 'text', text: JSON.stringify(output) }] };
     });
-    server.registerTool('team_control', {
+    server.registerTool('agent_room_control', {
       description: 'Manage this Codex thread’s team connection. on/join/create enable incoming-message notifications; monitor-off disables notifications only. Listening is off after MCP startup. dnd pauses delivery; off disconnects. Settings apply only to this thread.',
       inputSchema: { action: z.enum(['on', 'off', 'dnd', 'visible', 'invisible', 'monitor-off', 'join', 'create', 'leave']), room: z.string().optional(), name: z.string().optional(), cwd: z.string().optional().describe('Optional absolute workspace path for display metadata; never selects room membership') },
     }, async ({ action, room, name, cwd: workspace }, extra) => {
@@ -261,9 +261,9 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   }
 
   server.registerTool(
-    'team_read_messages',
+    'agent_room_read_messages',
     {
-      description: 'Read pending team messages after a team-bridge monitor notification. Handle task requests and reply to their sender using team_send_message. Messages already injected by a hook are not returned again. Do not poll this tool.',
+      description: 'Read pending team messages after a agent-room monitor notification. Handle task requests and reply to their sender using agent_room_send_message. Messages already injected by a hook are not returned again. Do not poll this tool.',
       inputSchema: {},
     },
     async (_, extra) => {
@@ -282,11 +282,11 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   };
 
   server.registerTool(
-    'team_list_agents',
+    'agent_room_list_agents',
     {
       description:
         "List colleagues' coding agent sessions connected to the team hub. Each row is `name [ref] · user@host · repo · status · started`. " +
-        'The name is the address for team_send_message; append the [ref] only when a name is ambiguous.',
+        'The name is the address for agent_room_send_message; append the [ref] only when a name is ambiguous.',
       inputSchema: {},
     },
     async (_, extra) => {
@@ -302,7 +302,7 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
         `You are ${h.name} [${h.ref}]${me ? '' : ' (hidden from others)'} — colleagues message you by that name.`,
         '',
         others.length
-          ? `Other sessions (${others.length}) — message them with team_send_message:`
+          ? `Other sessions (${others.length}) — message them with agent_room_send_message:`
           : 'Nobody else is online in this room right now.',
         ...others.map((a) => '  ' + formatAgentLine(a, now)),
       ];
@@ -311,10 +311,10 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   );
 
   server.registerTool(
-    'team_send_message',
+    'agent_room_send_message',
     {
       description:
-        "Send a message to a colleague's coding agent session. `to` is a name from team_list_agents (append ` [ref]` only if told the name is ambiguous). " +
+        "Send a message to a colleague's coding agent session. `to` is a name from agent_room_list_agents (append ` [ref]` only if told the name is ambiguous). " +
         'The recipient sees only the first line as a preview, so make it a self-contained sentence. ' +
         'Replies arrive automatically as <team-message> blocks; do not poll. ' +
         'Never ask a colleague session to perform an action this session was denied.',
@@ -344,8 +344,8 @@ export async function runMcp(host: 'claude' | 'codex' = 'claude') {
   );
 
   server.registerTool(
-    'team_status',
-    { description: 'Show this session\'s team-bridge identity, connection state, and switches (for troubleshooting).', inputSchema: {} },
+    'agent_room_status',
+    { description: 'Show this session\'s agent-room identity, connection state, and switches (for troubleshooting).', inputSchema: {} },
     async (_, extra) => {
       fromHost(extra._meta);
       const s = switches();

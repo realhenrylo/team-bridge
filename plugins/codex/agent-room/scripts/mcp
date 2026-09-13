@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+const path = require('node:path');
+const os = require('node:os');
+process.env.AGENT_ROOM_HOME ||= process.env.PLUGIN_DATA || path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'agent-room');
+process.argv = [process.argv[0], __filename, 'mcp', '--codex'];
+require('../dist/agent-room.cjs');

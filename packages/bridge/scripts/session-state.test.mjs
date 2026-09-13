@@ -7,8 +7,8 @@ import ts from 'typescript';
 
 test('per-conversation state, host isolation, persistence, and atomic storage', async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-projects-')));
-  const previous = process.env.TEAM_BRIDGE_HOME;
-  process.env.TEAM_BRIDGE_HOME = path.join(root, 'data');
+  const previous = process.env.AGENT_ROOM_HOME;
+  process.env.AGENT_ROOM_HOME = path.join(root, 'data');
   try {
     const source = fs.readFileSync(new URL('../src/config.ts', import.meta.url), 'utf8');
     const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -35,8 +35,8 @@ test('per-conversation state, host isolation, persistence, and atomic storage', 
     assert.throws(() => config.openSession(b.sessionId), /Invalid session record/);
 
   } finally {
-    if (previous === undefined) delete process.env.TEAM_BRIDGE_HOME;
-    else process.env.TEAM_BRIDGE_HOME = previous;
+    if (previous === undefined) delete process.env.AGENT_ROOM_HOME;
+    else process.env.AGENT_ROOM_HOME = previous;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

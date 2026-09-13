@@ -30,7 +30,7 @@ process.on('message', async ({ id, op, ...args }) => {
       case 'restart': await client.close(); await start(); break;
       case 'tool': result = await client.callTool(args); break;
       case 'legacyWait': {
-        const dir = path.join(os.tmpdir(), `team-bridge-${os.userInfo().uid}`);
+        const dir = path.join(os.tmpdir(), `agent-room-${os.userInfo().uid}`);
         const meta = fs.readdirSync(dir).filter((name) => name.endsWith('.json'))
           .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')))
           .find((meta) => meta.ppid === process.pid);

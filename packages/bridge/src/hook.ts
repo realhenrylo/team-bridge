@@ -1,5 +1,5 @@
 /**
- * `team-bridge hook <Event>` — runs on Claude Code hook events. Reads the
+ * `agent-room hook <Event>` — runs on Claude Code hook events. Reads the
  * event JSON on stdin, finds this session's bridge process via its unix
  * socket, and either drains mail into the conversation or reports status.
  * Must be fast and must never fail loudly: any problem -> exit 0 silently.
@@ -39,7 +39,7 @@ export async function runHook(event: string) {
       const info = await call<{ name: string | null; inactive: string | null }>({ op: 'info' });
       const r = await call<{ messages: any[] }>({ op: 'drain' });
       const parts: string[] = [];
-      if (info?.name) parts.push(`team-bridge: this session is ${info.name}. Colleagues' messages arrive as <team-message> blocks; use team_list_agents / team_send_message to reach them.`);
+      if (info?.name) parts.push(`agent-room: this session is ${info.name}. Colleagues' messages arrive as <team-message> blocks; use agent_room_list_agents / agent_room_send_message to reach them.`);
       if (r?.messages?.length) parts.push(renderMessages(r.messages));
       if (parts.length) emitContext('SessionStart', parts.join('\n\n'));
       return;

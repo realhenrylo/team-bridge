@@ -1,8 +1,8 @@
 /**
- * `team-bridge monitor` — declared in plugin monitors.json, so Claude Code
- * starts it on first use of /team-bridge:team. It long-polls this session's bridge process
+ * `agent-room monitor` — declared in plugin monitors.json, so Claude Code
+ * starts it on first use of /agent-room:agent-room. It long-polls this session's bridge process
  * and prints one line per incoming message; Claude Code delivers each stdout
- * line as a notification. It never consumes messages — team_read_messages or
+ * line as a notification. It never consumes messages — agent_room_read_messages or
  * a hook reads the full text. A cursor also covers mail that predates the watch.
  */
 import { findSessionBridge, localRequest, parentPids, type SockMeta, type WaitResult } from './local';
@@ -33,7 +33,7 @@ export async function runMonitor() {
     }
     if (r.message) {
       const n = r.pending > 1 ? ` (${r.pending} unread)` : '';
-      process.stdout.write(`team-bridge: new message from ${r.message.from}${n}: ${r.message.preview} — call team_read_messages now to read and handle pending messages. If already read through a hook, do not handle them twice.\n`);
+      process.stdout.write(`agent-room: new message from ${r.message.from}${n}: ${r.message.preview} — call agent_room_read_messages now to read and handle pending messages. If already read through a hook, do not handle them twice.\n`);
       cursor = r.cursor ?? cursor;
     }
   }

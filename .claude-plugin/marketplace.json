@@ -1,10 +1,10 @@
 {
-  "name": "team-bridge-marketplace",
+  "name": "agent-room-marketplace",
   "owner": { "name": "henrylo" },
   "plugins": [
     {
-      "name": "team-bridge",
-      "source": "./plugins/claude/team-bridge",
+      "name": "agent-room",
+      "source": "./plugins/claude/agent-room",
       "description": "Message colleagues' Claude Code sessions through a shared hub."
     }
   ]

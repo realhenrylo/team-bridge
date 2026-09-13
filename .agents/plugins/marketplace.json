@@ -1,14 +1,14 @@
 {
-  "name": "team-bridge-marketplace",
+  "name": "agent-room-marketplace",
   "interface": {
-    "displayName": "Team Bridge Marketplace"
+    "displayName": "Agent Room Marketplace"
   },
   "plugins": [
     {
-      "name": "team-bridge",
+      "name": "agent-room",
       "source": {
         "source": "local",
-        "path": "./plugins/codex/team-bridge"
+        "path": "./plugins/codex/agent-room"
       },
       "policy": {
         "installation": "AVAILABLE",

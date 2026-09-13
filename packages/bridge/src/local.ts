@@ -144,7 +144,7 @@ export function startLocalServer(
     conn.on('error', () => { /* client went away */ });
   });
   server.on('error', (e) => {
-    console.error('[team-bridge] local socket failed:', e.message);
+    console.error('[agent-room] local socket failed:', e.message);
   });
   server.listen(p);
   return server;

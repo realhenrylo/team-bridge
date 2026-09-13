@@ -13,10 +13,10 @@ import path from 'node:path';
 import { spawn as spawnProc } from 'node:child_process';
 const S = process.env.S ?? '/tmp/tb-smoke', R = process.env.R ?? path.resolve(import.meta.dirname, '../../..');
 process.env.CLAUDE_PLUGIN_DATA = `${S}/plugin-data`;
-if (process.env.HUB !== 'default') process.env.TEAM_BRIDGE_HUB = process.env.HUB ?? 'ws://localhost:8799'; // HUB=default -> built-in hub
+if (process.env.HUB !== 'default') process.env.AGENT_ROOM_HUB = process.env.HUB ?? 'ws://localhost:8799'; // HUB=default -> built-in hub
 process.env.CLAUDE_PLUGIN_OPTION_USER = 'Henry Lo';
-delete process.env.TEAM_BRIDGE_HOME;
-const bin = `${R}/plugins/claude/team-bridge/dist/team-bridge.cjs`;
+delete process.env.AGENT_ROOM_HOME;
+const bin = `${R}/plugins/claude/agent-room/dist/agent-room.cjs`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = (res) => res.content.map((c) => c.text).join('\n');
 const envFor = (cwd) => ({ ...process.env, CLAUDE_CODE_MESSAGING_SOCKET: `${S}/${path.basename(cwd)}-host.sock` });
@@ -50,7 +50,7 @@ for (const d of ['repoA', 'repoB']) console.log(execFileSync('node', [bin, 'team
 // wait until both have registered with the hub (slow links / proxies can take a few seconds)
 async function untilConnected(c, label) {
   for (let i = 0; i < 40; i++) {
-    const st = text(await c.callTool({ name: 'team_status', arguments: {} }));
+    const st = text(await c.callTool({ name: 'agent_room_status', arguments: {} }));
     if (/connected: true/.test(st)) return;
     await sleep(500);
   }
@@ -59,8 +59,8 @@ async function untilConnected(c, label) {
 await Promise.all([untilConnected(A, 'A'), untilConnected(B, 'B')]);
 await sleep(300);
 
-console.log('--- A: team_list_agents');
-const list = text(await A.callTool({ name: 'team_list_agents', arguments: {} }));
+console.log('--- A: agent_room_list_agents');
+const list = text(await A.callTool({ name: 'agent_room_list_agents', arguments: {} }));
 console.log(list);
 const bName = list.split('\n').find((l) => l.includes('repob'))?.trim().split(' ')[0];
 console.log('B name =', bName);
@@ -75,7 +75,7 @@ mon.stdout.on('data', (d) => { monOut += d.toString(); });
 await sleep(1500);
 
 console.log('--- A -> B send');
-console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: bName, message: 'hello from A\nsecond line', notify_when_idle: true } })));
+console.log(text(await A.callTool({ name: 'agent_room_send_message', arguments: { to: bName, message: 'hello from A\nsecond line', notify_when_idle: true } })));
 await sleep(500);
 
 console.log('monitor printed:', JSON.stringify(monOut.trim()) || '(nothing) — FAILED');
@@ -88,11 +88,11 @@ await sleep(500);
 console.log(hook('PostToolUse', `${S}/repoA`, 'sess-A', { tool_name: 'Read' }));
 
 console.log('--- A -> unknown name');
-console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: 'nobody-here', message: 'x' } })));
+console.log(text(await A.callTool({ name: 'agent_room_send_message', arguments: { to: 'nobody-here', message: 'x' } })));
 
-console.log('--- B: /team dnd, then A sends, B drains nothing');
+console.log('--- B: /agent-room dnd, then A sends, B drains nothing');
 console.log(execFileSync('node', [bin, 'team', 'dnd'], { cwd: `${S}/repoB`, env: envFor(`${S}/repoB`) }).toString());
-console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: bName, message: 'while dnd' } })));
+console.log(text(await A.callTool({ name: 'agent_room_send_message', arguments: { to: bName, message: 'while dnd' } })));
 await sleep(300);
 console.log('drained under dnd:', JSON.stringify(hook('PostToolUse', `${S}/repoB`, 'sess-B', { tool_name: 'Read' })));
 console.log(execFileSync('node', [bin, 'team', 'on'], { cwd: `${S}/repoB`, env: envFor(`${S}/repoB`) }).toString());
@@ -101,24 +101,24 @@ console.log('drained after on:', hook('Stop', `${S}/repoB`, 'sess-B').slice(0, 1
 console.log('--- offline queue: kill B, A sends, B comes back');
 await B.close();
 await sleep(800);
-console.log(text(await A.callTool({ name: 'team_send_message', arguments: { to: bName, message: 'queued while offline' } })));
+console.log(text(await A.callTool({ name: 'agent_room_send_message', arguments: { to: bName, message: 'queued while offline' } })));
 B = await spawn(`${S}/repoB`);
 await untilConnected(B, 'resumed B');
-const resumedStatus = text(await B.callTool({ name: 'team_status', arguments: {} }));
+const resumedStatus = text(await B.callTool({ name: 'agent_room_status', arguments: {} }));
 assert.ok(resumedStatus.includes(`name: ${bName} [`), 'B keeps its name after restarting');
-const offlineMail = text(await B.callTool({ name: 'team_read_messages', arguments: {} }));
+const offlineMail = text(await B.callTool({ name: 'agent_room_read_messages', arguments: {} }));
 assert.match(offlineMail, /queued while offline/);
 console.log('resumed B kept its identity and received mail sent to its old name');
 await B.close();
 
 mon.kill();
-console.log('--- team_status on A');
-console.log(text(await A.callTool({ name: 'team_status', arguments: {} })));
+console.log('--- agent_room_status on A');
+console.log(text(await A.callTool({ name: 'agent_room_status', arguments: {} })));
 await A.close();
 
 if (process.env.EXPIRY === '1') {
   console.log('--- room expiry: nobody connected, waiting for the alarm (~65s)');
-  const base = (process.env.TEAM_BRIDGE_HUB ?? 'wss://hub.agentroom.online').replace(/^ws/, 'http');
+  const base = (process.env.AGENT_ROOM_HUB ?? 'wss://hub.agentroom.online').replace(/^ws/, 'http');
   const t0 = Date.now();
   for (;;) {
     const res = await fetch(`${base}/rooms/${code}`); // note: plain fetch ignores proxies; expiry check is for local hubs

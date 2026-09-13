@@ -1,7 +1,7 @@
 import { DEFAULT_HUB, normalizeUser, writeCredentials } from './config';
 
 /**
- * `team-bridge configure --user alice [--hub wss://...]`
+ * `agent-room configure --user alice [--hub wss://...]`
  * Writes a local credentials.json. Not a login — there are no accounts; this
  * only matters when running the CLI outside Claude or against a self-hosted
  * hub. Inside Claude the name comes from userConfig and the hub is DEFAULT_HUB.
@@ -14,7 +14,7 @@ export function runConfigure(args: string[]) {
   const hub = get('hub') ?? DEFAULT_HUB;
   const user = get('user');
   if (!user) {
-    console.error('usage: team-bridge configure --user <your name> [--hub wss://...]');
+    console.error('usage: agent-room configure --user <your name> [--hub wss://...]');
     process.exitCode = 1;
     return;
   }

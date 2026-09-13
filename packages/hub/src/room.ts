@@ -7,7 +7,7 @@ import {
   type InboundMessage,
   type ServerMessage,
   type SessionStatus,
-} from '@team-bridge/protocol';
+} from '@agent-room/protocol';
 
 export interface Env {
   TEAM_ROOM: DurableObjectNamespace<TeamRoom>;
@@ -307,7 +307,7 @@ export class TeamRoom extends DurableObject<Env> {
     if (rows.length === 0) {
       return this.send(ws, {
         type: 'error', reqId: msg.reqId, code: 'UNKNOWN_AGENT',
-        message: `no agent named "${msg.to}"; run team_list_agents to see who is around`,
+        message: `no agent named "${msg.to}"; run agent_room_list_agents to see who is around`,
       });
     }
     if (rows.length > 1) {

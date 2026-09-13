@@ -1,5 +1,5 @@
 /**
- * `team-bridge room create [--name x]` | `room info <code>`
+ * `agent-room room create [--name x]` | `room info <code>`
  * Rooms live on the hub; the code is the only thing a colleague needs to join.
  */
 import { readCredentials } from './config';
@@ -45,7 +45,7 @@ export async function runRoom(args: string[]) {
   if (cmd === 'create') {
     const r = await createRoom(opt('name') ?? '');
     console.log(`room created: ${r.code}${r.name ? ` (${r.name})` : ''}`);
-    console.log(`share the code; colleagues run \`/team join ${r.code}\` in their repo.`);
+    console.log(`share the code; colleagues run \`/agent-room join ${r.code}\` in their repo.`);
     const days = (r.expiresAt - r.lastActive) / 86_400_000;
     console.log(`expires after ${days < 1 ? 'less than a day' : `${Math.round(days)} days`} without activity.`);
     return;
@@ -56,6 +56,6 @@ export async function runRoom(args: string[]) {
     console.log(`${r.code}${r.name ? ` (${r.name})` : ''}: ${r.online} online, last active ${new Date(r.lastActive).toISOString()}, expires ${new Date(r.expiresAt).toISOString()}`);
     return;
   }
-  console.error('usage: team-bridge room create [--name <name>] | room info <code>');
+  console.error('usage: agent-room room create [--name <name>] | room info <code>');
   process.exitCode = 1;
 }

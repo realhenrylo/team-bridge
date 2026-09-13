@@ -1,12 +1,14 @@
 {
-  "name": "team-bridge",
+  "name": "agent-room",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "pnpm -r --filter ./packages/protocol run build && pnpm -r --filter ./packages/bridge run build && node scripts/package-plugins.mjs",
     "typecheck": "pnpm -r run typecheck",
-    "hub:dev": "pnpm --filter @team-bridge/hub dev",
-    "hub:deploy": "pnpm --filter @team-bridge/hub run deploy"
+    "hub:dev": "pnpm --filter @agent-room/hub dev",
+    "hub:deploy": "pnpm --filter @agent-room/hub run deploy",
+    "website:dev": "python3 -m http.server 4173 --directory website/dist",
+    "website:deploy": "pnpm --filter @agent-room/hub exec wrangler deploy --config ../../wrangler.website.jsonc"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

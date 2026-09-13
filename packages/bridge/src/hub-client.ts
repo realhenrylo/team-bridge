@@ -7,7 +7,7 @@ import {
   type ClientMessage,
   type InboundMessage,
   type SessionStatus,
-} from '@team-bridge/protocol';
+} from '@agent-room/protocol';
 
 export interface HubClientOptions {
   hub: string;

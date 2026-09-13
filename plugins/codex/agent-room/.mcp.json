@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "agent-room": {
+      "command": "./scripts/mcp",
+      "env_vars": [
+        "CODEX_HOME",
+        "AGENT_ROOM_HUB",
+        "AGENT_ROOM_HOME"
+      ],
+      "args": [],
+      "cwd": "."
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # Codex plugin
 
-The Codex package lives in `plugins/codex/team-bridge/`. It shares the Hub, protocol,
+The Codex package lives in `plugins/codex/agent-room/`. It shares the Hub, protocol,
 mailbox, room configuration and messaging tools with the Claude package in
-`plugins/claude/team-bridge/`. The Hub needs no new deployment for mixed rooms.
+`plugins/claude/agent-room/`. The Hub needs no new deployment for mixed rooms.
 
 ## Install
 
@@ -15,24 +15,24 @@ same `CODEX_HOME` as the target conversation.
 Run in a terminal:
 
 ```sh
-codex plugin marketplace add realhenrylo/team-bridge
-codex plugin add team-bridge@team-bridge-marketplace
+codex plugin marketplace add realhenrylo/agent-room
+codex plugin add agent-room@agent-room-marketplace
 ```
 
 Start a new Codex conversation in your project. Use `/hooks` to review and trust
-the team-bridge lifecycle hooks. Installation does not grant hook trust or tool
+the agent-room lifecycle hooks. Installation does not grant hook trust or tool
 approval. Then ask:
 
 ```text
-$team join YOUR-ROOM-CODE
+$agent-room join YOUR-ROOM-CODE
 ```
 
-To create a room, use `$team create`; room creation is public and needs no token. The default Hub is `wss://hub.agentroom.online`. Anyone using the
+To create a room, use `$agent-room create`; room creation is public and needs no token. The default Hub is `wss://hub.agentroom.online`. Anyone using the
 Claude plugin can join the same room code.
 
-Incoming notifications start **off** whenever the MCP process starts. `$team on`,
-`$team join ...`, and `$team create` enable them for this running conversation.
-`$team dnd` pauses delivery; `$team off` disconnects; `$team monitor-off` disables
+Incoming notifications start **off** whenever the MCP process starts. `$agent-room on`,
+`$agent-room join ...`, and `$agent-room create` enable them for this running conversation.
+`$agent-room dnd` pauses delivery; `$agent-room off` disconnects; `$agent-room monitor-off` disables
 automatic notifications while retaining the connection. Trusted hooks can still
 read mail during a user/tool turn when automatic listening is off.
 
@@ -46,7 +46,7 @@ Each conversation has one private record at
 `<plugin-data>/conversations/<session-hash>.json`, containing its identity, room
 and switches. The key is the host plus conversation ID; the project path is only
 display metadata. Two conversations in one directory can join different rooms.
-`$team leave` clears only the current conversation's room and pending mail,
+`$agent-room leave` clears only the current conversation's room and pending mail,
 retaining its identity. Resume restores the room and switches; new/forked
 conversations start without a room. No project configuration is read or written.
 
@@ -56,14 +56,14 @@ cannot share a record by ID collision. New/forked threads get separate identitie
 
 The MCP launcher starts from the installed plugin root. Lifecycle hooks supply
 the actual project cwd; the bridge never treats its plugin directory as the
-user's workspace. Without trusted hooks, `team_control` accepts an explicit
+user's workspace. Without trusted hooks, `agent_room_control` accepts an explicit
 absolute `cwd`; identity and room membership always come from request metadata, even without cwd.
 
-Data uses `TEAM_BRIDGE_HOME`, then `PLUGIN_DATA` if supplied by the host, otherwise
-`$CODEX_HOME/team-bridge` (`~/.codex/team-bridge` by default). The fallback survives
-plugin updates and removal. `TEAM_BRIDGE_HUB` supports self-hosting. To configure
-a display name, run the installed `dist/team-bridge.cjs configure`
-command with `TEAM_BRIDGE_HOME` pointing to the same data directory.
+Data uses `AGENT_ROOM_HOME`, then `PLUGIN_DATA` if supplied by the host, otherwise
+`$CODEX_HOME/agent-room` (`~/.codex/agent-room` by default). The fallback survives
+plugin updates and removal. `AGENT_ROOM_HUB` supports self-hosting. To configure
+a display name, run the installed `dist/agent-room.cjs configure`
+command with `AGENT_ROOM_HOME` pointing to the same data directory.
 
 ## Delivery
 
@@ -71,7 +71,7 @@ A small listener inside the MCP process calls `codex queue --thread <id>` with a
 fixed notification. Colleague message contents remain in the mailbox and arrive
 through the MCP read tool or trusted lifecycle hook; they are not placed in the
 queued user prompt. The listener coalesces pending messages, advances its cursor
-only after successful queueing, and retries failures with backoff. `team_status`
+only after successful queueing, and retries failures with backoff. `agent_room_status`
 shows listening state and the latest notification error.
 
 The queue path has been verified against a local Codex CLI session. It is not a
@@ -87,9 +87,9 @@ The Hub can queue messages sent while a known identity is offline.
 ```sh
 pnpm build
 pnpm typecheck
-pnpm --filter @team-bridge/bridge test
-codex plugin marketplace add /absolute/path/to/team-bridge
-codex plugin add team-bridge@team-bridge-marketplace
+pnpm --filter @agent-room/bridge test
+codex plugin marketplace add /absolute/path/to/agent-room
+codex plugin add agent-room@agent-room-marketplace
 ```
 
 Use an isolated `CODEX_HOME` for integration tests. The suite uses a fake `codex`
